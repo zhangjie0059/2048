@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#faf8ef">
+  <title>2048</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <h1 class="title">2048</h1>
+      <div class="controls">
+        <div class="scores">
+          <div class="score-box">
+            <span class="label">分数</span>
+            <span id="score" class="value">0</span>
+          </div>
+          <div class="score-box">
+            <span class="label">最高分</span>
+            <span id="best" class="value">0</span>
+          </div>
+        </div>
+        <button id="restart" class="btn">新游戏</button>
+      </div>
+    </header>
+
+    <p class="intro">滑动合并相同数字，目标合成 <strong>2048</strong>！</p>
+
+    <div class="ai-bar">
+      <button id="autoplay-btn" class="btn">▶ 自动模式</button>
+      <select id="autoplay-speed" class="speed-select" title="自动模式速度">
+        <option value="400">慢速</option>
+        <option value="260" selected>中速</option>
+        <option value="120">快速</option>
+        <option value="0">极速</option>
+      </select>
+      <span id="autoplay-status" class="ai-status"></span>
+    </div>
+
+    <div id="board" class="board">
+      <div class="board-grid" id="board-grid"></div>
+      <div id="tiles" class="tiles"></div>
+      <div id="overlay" class="overlay hidden">
+        <div class="overlay-content">
+          <h2 id="overlay-title" class="overlay-title"></h2>
+          <p id="overlay-text" class="overlay-text"></p>
+          <button id="overlay-btn" class="btn"></button>
+        </div>
+      </div>
+    </div>
+
+    <p class="hint">操作：方向键 / WASD / 触摸滑动 · 最高分自动保存在浏览器中</p>
+  </div>
+
+  <script src="ai.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
