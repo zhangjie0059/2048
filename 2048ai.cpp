@@ -36,7 +36,7 @@ typedef uint64_t board_t;
 typedef uint16_t row_t;
 
 static const uint64_t ROW_MASK = 0xFFFFULL;
-static const uint64_t COL_MASK = 0x000F0F0F0F0F0F0FULL;
+static const uint64_t COL_MASK = 0x000F000F000F000FULL;
 
 static row_t row_left_table[65536];
 static row_t row_right_table[65536];
@@ -279,37 +279,41 @@ struct eval_state {
     int maxdepth;
     long long moves_evaled;
     long long budget; // 0 = unlimited
-    int depth_limit;
+    bool cut;         // budget exhausted -> this depth level is incomplete
+    int depth_limit;  // unused placeholder (kept for nneonneo compatibility)
 
-    eval_state() : curdepth(0), maxdepth(0), moves_evaled(0), budget(0), depth_limit(0) {}
+    eval_state() : curdepth(0), maxdepth(0), moves_evaled(0), budget(0), cut(false), depth_limit(0) {}
 };
 
-static float score_move_node(eval_state& state, board_t board, float cprob);
-static float score_tilechoose_node(eval_state& state, board_t board, float cprob);
+static float score_move_node(eval_state& state, board_t board, float cprob, int depth);
+static float score_tilechoose_node(eval_state& state, board_t board, float cprob, int depth);
 
-static float score_move_node(eval_state& state, board_t board, float cprob) {
-    if (state.budget > 0 && state.moves_evaled >= state.budget) {
-        return score_heur_board(board);
-    }
+static float score_move_node(eval_state& state, board_t board, float cprob, int depth) {
+    if (state.cut) return score_heur_board(board);
     float best = 0.0f;
     state.curdepth++;
     for (int move = 0; move < 4; ++move) {
+        if (state.budget > 0 && state.moves_evaled >= state.budget) {
+            state.cut = true;
+            break;
+        }
         board_t newboard = execute_move(move, board);
         state.moves_evaled++;
         if (board != newboard) {
-            best = std::max(best, score_tilechoose_node(state, newboard, cprob));
+            best = std::max(best, score_tilechoose_node(state, newboard, cprob, depth));
         }
-        if (state.budget > 0 && state.moves_evaled >= state.budget) break;
+        if (state.cut) break;
     }
     state.curdepth--;
     return best;
 }
 
-static float score_tilechoose_node(eval_state& state, board_t board, float cprob) {
-    if (cprob < CPROB_THRESH_BASE || state.curdepth >= state.depth_limit) {
+static float score_tilechoose_node(eval_state& state, board_t board, float cprob, int depth) {
+    if (depth <= 0 || cprob < CPROB_THRESH_BASE) {
         state.maxdepth = std::max(state.curdepth, state.maxdepth);
         return score_heur_board(board);
     }
+    if (state.cut) return score_heur_board(board);
     if (state.curdepth < CACHE_DEPTH_LIMIT) {
         std::unordered_map<board_t, trans_table_entry_t>::iterator i =
             state.trans_table.find(board);
@@ -321,14 +325,16 @@ static float score_tilechoose_node(eval_state& state, board_t board, float cprob
         }
     }
     int num_open = count_empty(board);
+    if (num_open == 0) return score_heur_board(board);
     cprob /= (float)num_open;
     float res = 0.0f;
     board_t tmp = board;
     board_t tile_2 = 1;
     while (tile_2) {
         if ((tmp & 0xf) == 0) {
-            res += score_move_node(state, board | tile_2, cprob * 0.9f) * 0.9f;
-            res += score_move_node(state, board | (tile_2 << 1), cprob * 0.1f) * 0.1f;
+            res += score_move_node(state, board | tile_2, cprob * 0.9f, depth - 1) * 0.9f;
+            res += score_move_node(state, board | (tile_2 << 1), cprob * 0.1f, depth - 1) * 0.1f;
+            if (state.cut) break;
         }
         tmp >>= 4;
         tile_2 <<= 4;
@@ -346,10 +352,18 @@ static float score_tilechoose_node(eval_state& state, board_t board, float cprob
 static float score_toplevel_move(board_t board, int move, long long budget) {
     board_t newboard = execute_move(move, board);
     if (board == newboard) return 0;
-    eval_state state;
-    state.depth_limit = std::max(3, count_distinct_tiles(board) - 2);
-    state.budget = budget;
-    return score_tilechoose_node(state, newboard, 1.0f) + 1e-6f;
+    // Iterative deepening: only accept a depth level that completed fully.
+    // If the budget is exhausted mid-level, keep the previous clean result.
+    float last = 0.0f;
+    for (int depth = 1; depth <= 20; ++depth) {
+        eval_state state;
+        state.budget = budget;
+        float v = score_tilechoose_node(state, newboard, 1.0f, depth);
+        if (state.cut) break;
+        last = v;
+        if (state.maxdepth < depth) break; // tree cannot go deeper (cprob cutoff)
+    }
+    return last + 1e-6f;
 }
 
 static int find_best_move(board_t board, long long budget) {
@@ -528,6 +542,11 @@ static int run_bench(int games, unsigned long long seed, long long budget) {
         if (r.max_rank >= 11) count[1]++;
         if (r.max_rank >= 10) count[0]++;
         if (r.max_rank < 16) hist[r.max_rank]++;
+        if (games <= 20) {
+            printf("game %d: max_tile=%lld score=%lld moves=%d\n",
+                   g + 1, 1LL << r.max_rank, r.score, r.moves);
+            fflush(stdout);
+        }
         if (games > 1 && (g + 1) % 100 == 0) {
             printf("  %d games done\n", g + 1);
         }
@@ -588,7 +607,7 @@ int main(int argc, char** argv) {
         return selftest();
     }
     if (mode == "move") {
-        long long budget = 0;
+        long long budget = 500000;
         for (int i = 2; i < argc; ++i) {
             if (strcmp(argv[i], "--budget") == 0) budget = parse_budget(argc, argv, i);
         }
@@ -600,7 +619,7 @@ int main(int argc, char** argv) {
     // default: bench
     int games = 100;
     unsigned long long seed = 0;
-    long long budget = 0;
+    long long budget = 1000000;
     for (int i = 2; i < argc; ++i) {
         if (strcmp(argv[i], "--games") == 0 && i + 1 < argc) games = atoi(argv[++i]);
         else if (strcmp(argv[i], "--seed") == 0 && i + 1 < argc) seed = strtoull(argv[++i], NULL, 10);
