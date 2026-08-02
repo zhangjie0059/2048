@@ -521,7 +521,7 @@ static int run_bench(int games, unsigned long long seed, long long budget) {
         game_result_t r = play_game(budget);
         total_score += r.score;
         total_moves += r.moves;
-        if (r.max_rank >= 11) count[5]++;
+        if (r.max_rank >= 15) count[5]++;   // >= 32768
         if (r.max_rank >= 14) count[4]++;
         if (r.max_rank >= 13) count[3]++;
         if (r.max_rank >= 12) count[2]++;
