@@ -28,6 +28,16 @@ if not errorlevel 1 (
   goto :done
 )
 
+rem MSVC is installed but not on PATH - set it up via vcvarsall.
+if exist "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvarsall.bat" (
+  echo Setting up MSVC environment via vcvarsall...
+  call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvarsall.bat" x64
+  if errorlevel 1 goto :fail
+  cl /nologo /O2 /EHsc /std:c++17 /D_CRT_SECURE_NO_WARNINGS 2048ai.cpp
+  if errorlevel 1 goto :fail
+  goto :done
+)
+
 echo No compiler found. Install MSYS2 (https://www.msys2.org/), then in the
 echo "MSYS2 UCRT64" terminal run:
 echo   pacman -S --needed mingw-w64-ucrt-x86_64-gcc
