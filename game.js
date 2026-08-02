@@ -17,6 +17,8 @@
   const autoplayBtn = document.getElementById('autoplay-btn');
   const autoplaySpeed = document.getElementById('autoplay-speed');
   const autoplayStatus = document.getElementById('autoplay-status');
+  const multiplierSelect = document.getElementById('multiplier');
+  const targetEl = document.getElementById('target');
 
   const KEY_MAP = {
     ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',
@@ -39,14 +41,19 @@
   let busy = false;
   let nextId = 1;
   let CELL = 0;
+  let multiplier = 1;
 
   const els = new Map(); // tileId -> DOM element
   const autoplay = { running: false, timer: null, steps: 0 };
   let fastMode = false;
 
+  function bestKey() {
+    return multiplier === 1 ? 'best-2048' : 'best-2048-' + multiplier;
+  }
+
   function loadBest() {
     try {
-      best = parseInt(localStorage.getItem('best-2048'), 10) || 0;
+      best = parseInt(localStorage.getItem(bestKey()), 10) || 0;
     } catch (e) {
       best = 0;
     }
@@ -54,10 +61,14 @@
 
   function saveBest() {
     try {
-      localStorage.setItem('best-2048', String(best));
+      localStorage.setItem(bestKey(), String(best));
     } catch (e) {
       /* localStorage unavailable (e.g. some privacy modes) */
     }
+  }
+
+  function winTarget() {
+    return 2048 * multiplier;
   }
 
   function computeCellSize() {
@@ -72,6 +83,7 @@
     over = false;
     busy = false;
     hideOverlay();
+    targetEl.textContent = winTarget();
 
     for (const el of els.values()) el.remove();
     els.clear();
@@ -96,7 +108,8 @@
       id: nextId++,
       row: r,
       col: c,
-      value: Math.random() < 0.9 ? 2 : 4,
+      // 1倍保持原版 90% 出 2 / 10% 出 4；4/8/16 倍则恒定刷新倍数本身
+      value: multiplier === 1 ? (Math.random() < 0.9 ? 2 : 4) : multiplier,
       isNew: true,
       merged: false,
       absorbed: null,
@@ -105,10 +118,16 @@
     return tile;
   }
 
+  // 颜色阶梯按倍数等比缩放：基数方块（multiplier）始终对应普通模式的 2
+  function colorKey(value) {
+    const cv = multiplier === 1 ? value : (value * 2) / multiplier;
+    if (cv >= 2048) return 'tile-super';
+    return 'tile-' + cv;
+  }
+
   function tileClass(tile) {
-    let cls = 'tile';
-    if (tile.value > 2048) cls += ' tile-super';
-    else cls += ' tile-' + tile.value;
+    let cls = 'tile ' + colorKey(tile.value);
+    if (tile.value === winTarget()) cls += ' tile-win';
     if (tile.isNew) cls += ' tile-new';
     if (tile.merged) cls += ' tile-merged';
     return cls;
@@ -340,9 +359,9 @@
       for (let r = 0; r < SIZE; r++) {
         for (let c = 0; c < SIZE; c++) {
           const t = grid[r][c];
-          if (t && t.value === 2048) {
+          if (t && t.value === winTarget()) {
             won = true;
-            showOverlay('你赢了！', '成功合成 2048！还要继续挑战更高分数吗？', '继续游戏', hideOverlay);
+            showOverlay('你赢了！', `成功合成 ${winTarget()}！还要继续挑战更高分数吗？`, '继续游戏', hideOverlay);
             return;
           }
         }
@@ -369,16 +388,6 @@
 
   function gridValues() {
     return grid.map((row) => row.map((t) => (t ? t.value : 0)));
-  }
-
-  function autoplayDepth() {
-    let empty = 0;
-    for (let r = 0; r < SIZE; r++) {
-      for (let c = 0; c < SIZE; c++) {
-        if (!grid[r][c]) empty++;
-      }
-    }
-    return empty > 10 ? 2 : (empty > 4 ? 3 : 4);
   }
 
   function maxTileValue() {
@@ -430,7 +439,7 @@
     const speed = Number.isFinite(speedRaw) ? speedRaw : 260;
     fastMode = speed === 0;
     document.body.classList.toggle('fast-mode', fastMode);
-    const dir = window.Twenty48AI.bestMove(gridValues(), { depth: autoplayDepth() });
+    const dir = window.Twenty48AI.bestMove(gridValues(), { timeoutMs: 120 });
     if (!dir) {
       stopAutoplay();
       return;
@@ -488,6 +497,17 @@
 
   restartBtn.addEventListener('click', newGame);
   autoplayBtn.addEventListener('click', toggleAutoplay);
+  multiplierSelect.addEventListener('change', () => {
+    multiplier = parseInt(multiplierSelect.value, 10) || 1;
+    try {
+      localStorage.setItem('multiplier-2048', String(multiplier));
+    } catch (e) {
+      /* ignore */
+    }
+    loadBest();
+    bestEl.textContent = best;
+    newGame();
+  });
 
   // Build the 4x4 background grid once.
   for (let i = 0; i < SIZE * SIZE; i++) {
@@ -496,6 +516,12 @@
     boardGridEl.appendChild(cell);
   }
 
+  try {
+    multiplier = parseInt(localStorage.getItem('multiplier-2048'), 10) || 1;
+  } catch (e) {
+    multiplier = 1;
+  }
+  multiplierSelect.value = String(multiplier);
   loadBest();
   bestEl.textContent = best;
   newGame();
@@ -507,6 +533,18 @@
       move,
       getGrid: () => grid.map((row) => row.map((t) => (t ? t.value : 0))),
       getScore: () => score,
+      getMultiplier: () => multiplier,
+      setMultiplier(m) {
+        multiplier = m || 1;
+        try {
+          localStorage.setItem('multiplier-2048', String(multiplier));
+        } catch (e) {
+          /* ignore */
+        }
+        loadBest();
+        bestEl.textContent = best;
+        newGame();
+      },
       setGrid(values) {
         grid = values.map((row, r) =>
           row.map((v, c) =>

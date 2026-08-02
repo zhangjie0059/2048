@@ -5,7 +5,8 @@
  * - 内部使用 16 元素扁平数组表示棋盘，克隆与遍历开销极低
  * - 模拟移动与真实游戏逻辑保持一致（滑动 -> 合并 -> 补位）
  * - 启发式参考 ovolve/2048-AI：平滑度 + 单调性 + 空格数 + 最大方块
- * - 机会节点抽样生成位置、玩家节点剪枝，按空格数自适应搜索深度
+ * - 期望最大化搜索：根节点随机抽样生成位置，内部节点剪枝 + 抽样，
+ *   配合置换表缓存，按空格数自适应搜索深度
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
@@ -20,9 +21,18 @@
   const N = SIZE * SIZE;
   const LOST_PENALTY = 200000;
   const SPAWN_2_RATIO = 0.9;
-  const CHANCE_SAMPLE = 3; // 机会节点最多抽样的空格数
+  const CHANCE_SAMPLE = Math.round(envNum('AI_SAMPLE', 3)); // 机会节点抽样数
   const PRUNE_K = 3;       // 玩家节点保留的候选方向数
+  const ROOT_SAMPLE = Math.round(envNum('AI_ROOT_SAMPLE', 8)); // 根节点机会抽样数
 
+  // 可通过环境变量调节（Node 基准调参用；浏览器中使用默认值）
+  function envNum(name, def) {
+    if (typeof process !== 'undefined' && process.env && process.env[name] !== undefined) {
+      const v = parseFloat(process.env[name]);
+      if (!Number.isNaN(v)) return v;
+    }
+    return def;
+  }
   const DIRS = {
     up: { dr: -1, dc: 0 },
     down: { dr: 1, dc: 0 },
@@ -263,28 +273,33 @@
     return smooth * 0.1 + mono + Math.log(empty + 1) * 2.7 + maxK;
   }
 
-  function sampleIndices(cells) {
-    if (cells.length <= CHANCE_SAMPLE) return cells;
-    const out = [];
-    for (let i = 0; i < CHANCE_SAMPLE; i++) {
-      out.push(cells[Math.floor((i * cells.length) / CHANCE_SAMPLE)]);
+  function sampleIndices(cells, limit) {
+    if (cells.length <= limit) return cells;
+    // 部分 Fisher-Yates 洗牌：随机无偏地取前 limit 个
+    const out = cells.slice();
+    for (let i = 0; i < limit; i++) {
+      const j = i + Math.floor(Math.random() * (cells.length - i));
+      const t = out[i];
+      out[i] = out[j];
+      out[j] = t;
     }
-    return out;
+    return out.slice(0, limit);
   }
 
-  function chanceNode(f, depth, deadline) {
+  function chanceNode(f, depth, deadline, tt, limit) {
     if (Date.now() > deadline) return evaluateFlat(f);
     const cells = emptyIndices(f);
     if (!cells.length) return evaluateFlat(f);
+    const sampled = cells.length <= limit ? cells : sampleIndices(cells, limit);
     let total = 0;
-    for (const idx of sampleIndices(cells)) {
+    for (const idx of sampled) {
       const g2 = f.slice();
       g2[idx] = 2;
-      total += SPAWN_2_RATIO * search(g2, depth - 1, deadline);
+      total += SPAWN_2_RATIO * search(g2, depth - 1, deadline, tt);
       g2[idx] = 4;
-      total += (1 - SPAWN_2_RATIO) * search(g2, depth - 1, deadline);
+      total += (1 - SPAWN_2_RATIO) * search(g2, depth - 1, deadline, tt);
     }
-    return total / Math.min(cells.length, CHANCE_SAMPLE);
+    return total / sampled.length;
   }
 
   function topK(moves, k) {
@@ -295,17 +310,27 @@
       .map((x) => x.mv);
   }
 
-  function search(f, depth, deadline) {
+  function search(f, depth, deadline, tt) {
     if (Date.now() > deadline) return evaluateFlat(f);
     if (depth === 0) return evaluateFlat(f);
+    const key = depth + ':' + f.join(',');
+    const cached = tt.get(key);
+    if (cached !== undefined) return cached;
     const moves = legalMovesFlat(f);
-    if (!moves.length) return evaluateFlat(f) - LOST_PENALTY;
+    if (!moves.length) {
+      const v = evaluateFlat(f) - LOST_PENALTY;
+      tt.set(key, v);
+      return v;
+    }
     const pruned = topK(moves, PRUNE_K);
     let best = -Infinity;
     for (const mv of pruned) {
-      const v = depth === 1 ? evaluateFlat(mv.grid) : chanceNode(mv.grid, depth, deadline);
+      const v = depth === 1
+        ? evaluateFlat(mv.grid)
+        : chanceNode(mv.grid, depth, deadline, tt, CHANCE_SAMPLE);
       if (v > best) best = v;
     }
+    tt.set(key, best);
     return best;
   }
 
@@ -316,11 +341,15 @@
     const moves = legalMovesFlat(f);
     if (!moves.length) return null;
 
-    const deadline = Date.now() + (opts.timeoutMs || 60);
+    const deadline = Date.now() + (opts.timeoutMs || 150);
+    const tt = new Map();
+    const rootLimit = depth >= 4 ? Math.min(ROOT_SAMPLE, 5) : ROOT_SAMPLE;
     let best = -Infinity;
     let bestDir = null;
     for (const mv of moves) {
-      const v = depth <= 1 ? evaluateFlat(mv.grid) : chanceNode(mv.grid, depth, deadline);
+      const v = depth <= 1
+        ? evaluateFlat(mv.grid)
+        : chanceNode(mv.grid, depth, deadline, tt, rootLimit);
       if (v > best) {
         best = v;
         bestDir = mv.dir;

@@ -38,6 +38,7 @@ module.exports = function setupDomStub() {
     'board', 'board-grid', 'tiles', 'score', 'best',
     'overlay', 'overlay-title', 'overlay-text', 'overlay-btn', 'restart',
     'autoplay-btn', 'autoplay-speed', 'autoplay-status',
+    'multiplier', 'target',
   ].forEach((id) => { ids[id] = makeEl(); });
 
   const docListeners = {};

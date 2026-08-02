@@ -103,7 +103,7 @@ const maxBest = Math.max(...maxTiles);
 console.log(`基准：${GAMES} 局 → 最高方块分布 [${maxTiles.join(', ')}]`);
 console.log(`基准：平均得分 ${avgScore}，平均步数 ${avgMoves}，最好成绩 ${maxBest}，达到 2048 的局数 ${wins}/${GAMES}`);
 
-assert.ok(wins >= 4, `至少 4/6 局应达到 2048，实际 ${wins}/6`);
-assert.ok(maxBest >= 4096, `最好成绩应达到 4096，实际 ${maxBest}`);
+assert.ok(wins >= 5, `至少 5/6 局应达到 2048，实际 ${wins}/6`);
+assert.ok(maxBest >= 8192, `最好成绩应达到 8192，实际 ${maxBest}`);
 
 console.log('All 2048 AI tests passed ✔');

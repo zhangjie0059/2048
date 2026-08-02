@@ -26,9 +26,15 @@
       </div>
     </header>
 
-    <p class="intro">滑动合并相同数字，目标合成 <strong>2048</strong>！</p>
+    <p class="intro">滑动合并相同数字，目标合成 <strong id="target">2048</strong>！</p>
 
     <div class="ai-bar">
+      <select id="multiplier" class="speed-select" title="开局倍数（最小方块与刷新值）">
+        <option value="1">1倍</option>
+        <option value="4">4倍</option>
+        <option value="8">8倍</option>
+        <option value="16">16倍</option>
+      </select>
       <button id="autoplay-btn" class="btn">▶ 自动模式</button>
       <select id="autoplay-speed" class="speed-select" title="自动模式速度">
         <option value="400">慢速</option>

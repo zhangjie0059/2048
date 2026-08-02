@@ -169,6 +169,10 @@ body {
 .tile-2048 { background: #edc22e; color: #f9f6f2; box-shadow: 0 0 36px rgba(237, 194, 46, 0.55); }
 .tile-super { background: #3c3a32; color: #f9f6f2; }
 
+.tile-win {
+  box-shadow: 0 0 36px rgba(237, 194, 46, 0.55);
+}
+
 .tile-new {
   animation: tile-appear 200ms ease;
 }

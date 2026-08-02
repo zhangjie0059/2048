@@ -87,4 +87,32 @@ game.move('right');
 assert.ok(overlay.classList.contains('hidden'), 'game continues after dismissing win overlay');
 checkDomMatchesGrid();
 
+// H: 4倍模式——初始方块恒为 4，合成 8192 获胜，最高分按倍数分开保存
+game.setMultiplier(4);
+let initTiles = game.getGrid().flat().filter(Boolean);
+assert.ok(initTiles.every((v) => v === 4), '4倍模式初始方块应恒为 4');
+game.setGrid([[4096, 4096, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]);
+queueRands(0, 0);
+game.move('left');
+assert.ok(!overlay.classList.contains('hidden'));
+assert.strictEqual(ids['overlay-title'].textContent, '你赢了！');
+assert.ok(ids['overlay-text'].textContent.includes('8192'), '4倍模式胜利目标应为 8192');
+assert.strictEqual(game.getScore(), 8192);
+assert.strictEqual(localStorage.getItem('best-2048-4'), '8192');
+const winEl = tilesEl.children.find((el) => String(el.textContent) === '8192');
+assert.ok(winEl && winEl.className.includes('tile-super'), '8192 应使用超高方块样式');
+ids['overlay-btn'].onclick();
+assert.ok(overlay.classList.contains('hidden'));
+
+// I: 16倍模式——初始方块恒为 16
+game.setMultiplier(16);
+initTiles = game.getGrid().flat().filter(Boolean);
+assert.ok(initTiles.every((v) => v === 16), '16倍模式初始方块应恒为 16');
+assert.strictEqual(String(ids['target'].textContent), '32768');
+
+// 恢复 1 倍模式
+game.setMultiplier(1);
+initTiles = game.getGrid().flat().filter(Boolean);
+assert.ok(initTiles.every((v) => v === 2 || v === 4), '恢复 1 倍后初始方块应为 2 或 4');
+
 console.log('All 2048 logic tests passed ✔');
