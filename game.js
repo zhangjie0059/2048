@@ -14,9 +14,6 @@
   const overlayText = document.getElementById('overlay-text');
   const overlayBtn = document.getElementById('overlay-btn');
   const restartBtn = document.getElementById('restart');
-  const autoplayBtn = document.getElementById('autoplay-btn');
-  const autoplaySpeed = document.getElementById('autoplay-speed');
-  const autoplayStatus = document.getElementById('autoplay-status');
   const multiplierSelect = document.getElementById('multiplier');
   const targetEl = document.getElementById('target');
 
@@ -44,8 +41,6 @@
   let multiplier = 1;
 
   const els = new Map(); // tileId -> DOM element
-  const autoplay = { running: false, timer: null, steps: 0 };
-  let fastMode = false;
 
   function bestKey() {
     return multiplier === 1 ? 'best-2048' : 'best-2048-' + multiplier;
@@ -324,7 +319,7 @@
     updateScore();
     render({ keepAbsorbed: true });
 
-    const settleMs = fastMode ? 30 : 220;
+    const settleMs = 220;
     setTimeout(() => {
       for (let r = 0; r < SIZE; r++) {
         for (let c = 0; c < SIZE; c++) {
@@ -386,86 +381,6 @@
     overlayEl.classList.add('hidden');
   }
 
-  function gridValues() {
-    return grid.map((row) => row.map((t) => (t ? t.value : 0)));
-  }
-
-  function maxTileValue() {
-    let m = 0;
-    for (let r = 0; r < SIZE; r++) {
-      for (let c = 0; c < SIZE; c++) {
-        const t = grid[r][c];
-        if (t && t.value > m) m = t.value;
-      }
-    }
-    return m;
-  }
-
-  function updateAutoplayUI() {
-    autoplayBtn.textContent = autoplay.running ? '⏸ 停止自动' : '▶ 自动模式';
-    autoplayStatus.textContent = autoplay.running
-      ? `自动运行中 · 已走 ${autoplay.steps} 步 · 最大 ${maxTileValue()}`
-      : '';
-  }
-
-  function stopAutoplay() {
-    autoplay.running = false;
-    clearTimeout(autoplay.timer);
-    autoplay.timer = null;
-    fastMode = false;
-    document.body.classList.remove('fast-mode');
-    updateAutoplayUI();
-  }
-
-  function autoplayTick() {
-    if (!autoplay.running) return;
-    if (over) {
-      stopAutoplay();
-      return;
-    }
-    if (busy) {
-      autoplay.timer = setTimeout(autoplayTick, 50);
-      return;
-    }
-    // 自动模式遇到胜利弹窗时自动关闭并继续挑战更高分
-    if (!overlayEl.classList.contains('hidden')) hideOverlay();
-
-    if (!window.Twenty48AI) {
-      stopAutoplay();
-      autoplayStatus.textContent = 'AI 模块未加载';
-      return;
-    }
-    const speedRaw = parseInt(autoplaySpeed.value, 10);
-    const speed = Number.isFinite(speedRaw) ? speedRaw : 260;
-    fastMode = speed === 0;
-    document.body.classList.toggle('fast-mode', fastMode);
-    const dir = window.Twenty48AI.bestMove(gridValues(), { timeoutMs: 120 });
-    if (!dir) {
-      stopAutoplay();
-      return;
-    }
-    autoplay.steps++;
-    updateAutoplayUI();
-    move(dir);
-    autoplay.timer = setTimeout(autoplayTick, speed);
-  }
-
-  function startAutoplay() {
-    autoplay.running = true;
-    autoplay.steps = 0;
-    updateAutoplayUI();
-    autoplayTick();
-  }
-
-  function toggleAutoplay() {
-    if (autoplay.running) {
-      stopAutoplay();
-      return;
-    }
-    if (over) newGame();
-    startAutoplay();
-  }
-
   document.addEventListener('keydown', (e) => {
     const dir = KEY_MAP[e.key];
     if (!dir) return;
@@ -496,7 +411,6 @@
   });
 
   restartBtn.addEventListener('click', newGame);
-  autoplayBtn.addEventListener('click', toggleAutoplay);
   multiplierSelect.addEventListener('change', () => {
     multiplier = parseInt(multiplierSelect.value, 10) || 1;
     try {
