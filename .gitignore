@@ -1,5 +1,6 @@
 2048ai.exe
 2048ai.obj
+2048ai_bench.exe
 *.pid
 bench*.txt
 bench*.err

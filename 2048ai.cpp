@@ -420,12 +420,18 @@ struct game_result_t {
     int max_rank;
     long long score;
     int moves;
+    int first_reach[6]; // first move reaching rank 10..15 (tile 1024..32768), 0 = never
 };
 
 static game_result_t play_game(long long budget) {
     board_t board = initial_board();
     int moveno = 0;
     float score = 0.0f;
+    game_result_t r;
+    r.max_rank = 0;
+    r.score = 0;
+    r.moves = 0;
+    for (int i = 0; i < 6; ++i) r.first_reach[i] = 0;
     while (true) {
         int move = find_best_move(board, budget);
         if (move < 0) break;
@@ -434,9 +440,12 @@ static game_result_t play_game(long long budget) {
         score += score_board(newboard) - score_board(board);
         board = insert_tile_rand(newboard, draw_tile());
         moveno++;
+        int mr = get_max_rank(board);
+        if (mr > r.max_rank) r.max_rank = mr;
+        for (int i = 0; i < 6; ++i) {
+            if (r.first_reach[i] == 0 && mr >= 10 + i) r.first_reach[i] = moveno;
+        }
     }
-    game_result_t r;
-    r.max_rank = get_max_rank(board);
     r.score = (long long)(score + 0.5);
     r.moves = moveno;
     return r;
@@ -529,12 +538,20 @@ static int run_bench(int games, unsigned long long seed, long long budget) {
     int count[6] = {0}; // >=2, >=4, >=8, >=16, >=32, >=64 (ranks 1..6 => tiles 2..64)
     long long total_score = 0;
     long long total_moves = 0;
+    long long first_sum[6] = {0};
+    int first_cnt[6] = {0};
     std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
     int hist[16] = {0};
     for (int g = 0; g < games; ++g) {
         game_result_t r = play_game(budget);
         total_score += r.score;
         total_moves += r.moves;
+        for (int i = 0; i < 6; ++i) {
+            if (r.first_reach[i] > 0) {
+                first_sum[i] += r.first_reach[i];
+                first_cnt[i]++;
+            }
+        }
         if (r.max_rank >= 15) count[5]++;   // >= 32768
         if (r.max_rank >= 14) count[4]++;
         if (r.max_rank >= 13) count[3]++;
@@ -562,6 +579,13 @@ static int run_bench(int games, unsigned long long seed, long long budget) {
     printf("  >=32768: %5.1f%%\n", 100.0 * count[5] / games);
     printf("  avg score=%lld avg moves=%lld games/s=%.1f\n",
            total_score / games, total_moves / games, games / secs);
+    const char* names[6] = {"1024", "2048", "4096", "8192", "16384", "32768"};
+    for (int i = 0; i < 6; ++i) {
+        if (first_cnt[i] > 0) {
+            printf("  first %-6s: avg %lld moves (%d games reached)\n",
+                   names[i], first_sum[i] / first_cnt[i], first_cnt[i]);
+        }
+    }
     printf("  max-rank histogram (rank=log2(tile)):\n  ");
     for (int k = 0; k < 16; ++k) {
         if (hist[k]) printf("%d:%d  ", k, hist[k]);
