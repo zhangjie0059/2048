@@ -114,7 +114,7 @@ node web-autoplay.js --url https://play2048.co/ --budget 2097152 --headed --auto
 - `--target-tile N`：达到该方块即停止（默认 32768）
 - `--moves N` / `--once`：调试用，限制步数或只走一步
 - `--headed`：显示浏览器窗口（默认无头）
-- `--autorestart` / `--no-autorestart`：游戏结束自动点“新游戏”重开（默认开启）
+- `--autorestart`：游戏结束后自动点“新游戏”重开（默认关闭，不加则结束后停止）
 - `--delay MS`：每步等待动画的毫秒数（默认 160）
 
 ### App 版（emulator-autoplay.js）

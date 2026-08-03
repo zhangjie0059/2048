@@ -15,8 +15,7 @@
  *   --once              只走一步
  *   --headed            显示浏览器窗口（web-run.bat 默认已加；直接跑脚本时默认无头）
  *   --headless          强制无头（优先级高于 --headed）
- *   --autorestart       游戏结束后自动点“新游戏”重开（默认开启）
- *   --no-autorestart    关闭自动重开
+ *   --autorestart       游戏结束后自动点“新游戏”重开（默认关闭；不加则结束后停止）
  *   --delay MS          每步后等待动画的毫秒数（默认 160）
  *   --verbose           打印每步信息
  *
@@ -58,7 +57,7 @@ function parseArgs() {
     moves: has('--moves') ? parseInt(get('--moves', '0'), 10) : null,
     once: has('--once'),
     headed: has('--headed') && !has('--headless'),
-    autorestart: !has('--no-autorestart'),
+    autorestart: has('--autorestart'),
     delay: parseInt(get('--delay', '160'), 10),
     verbose: has('--verbose'),
   };
