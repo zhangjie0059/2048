@@ -14,6 +14,7 @@
   const overlayText = document.getElementById('overlay-text');
   const overlayBtn = document.getElementById('overlay-btn');
   const restartBtn = document.getElementById('restart');
+  const eliminateBtn = document.getElementById('eliminate-btn');
   const multiplierSelect = document.getElementById('multiplier');
   const targetEl = document.getElementById('target');
 
@@ -410,7 +411,34 @@
     render();
   });
 
+  /**
+   * 消除当前棋盘上数值最小的方块（所有同值方块一起消除）。
+   * 游戏结束后也能使用：清出空格后自动关闭结束弹窗，可继续玩。
+   */
+  function eliminateSmallest() {
+    if (busy) return;
+    let minVal = 0;
+    for (let r = 0; r < SIZE; r++) {
+      for (let c = 0; c < SIZE; c++) {
+        const t = grid[r][c];
+        if (t && (minVal === 0 || t.value < minVal)) minVal = t.value;
+      }
+    }
+    if (minVal === 0) return; // 空棋盘
+    for (let r = 0; r < SIZE; r++) {
+      for (let c = 0; c < SIZE; c++) {
+        if (grid[r][c] && grid[r][c].value === minVal) grid[r][c] = null;
+      }
+    }
+    if (over) {
+      over = false;
+      hideOverlay();
+    }
+    render();
+  }
+
   restartBtn.addEventListener('click', newGame);
+  eliminateBtn.addEventListener('click', eliminateSmallest);
   multiplierSelect.addEventListener('change', () => {
     multiplier = parseInt(multiplierSelect.value, 10) || 1;
     try {
@@ -445,6 +473,7 @@
     window.__game2048 = {
       newGame,
       move,
+      eliminateSmallest,
       getGrid: () => grid.map((row) => row.map((t) => (t ? t.value : 0))),
       getScore: () => score,
       getMultiplier: () => multiplier,
