@@ -398,8 +398,37 @@ async function main() {
     }
   }
 
-  console.log(`汇总: ${games} 局(不含当前), 总步数 ${moves}, 历史最高方块 ${bestOverall}, 告警 ${bad}`);
-  await browser.close();
+  console.log('================ 最终结果 ================');
+  console.log(`最大方块: ${bestOverall}`);
+  console.log(`总分: ${score}`);
+  console.log(`总步数: ${moves}`);
+  console.log(`自动重开: ${games} 局（本局不计）`);
+  console.log(`一致性告警: ${bad}`);
+  console.log('==========================================');
+  if (opt.headed) {
+    // 保持窗口打开，让用户能看到最终棋盘/分数；按 Ctrl+C 或关闭窗口后脚本退出。
+    console.log('游戏已结束，浏览器窗口保持打开供查看结果。按 Ctrl+C 或直接关闭窗口退出。');
+    await new Promise((resolve) => {
+      const timer = setInterval(() => {
+        let connected = false;
+        try {
+          connected = browser.isConnected();
+        } catch (e) {
+          connected = false;
+        }
+        if (!connected) {
+          clearInterval(timer);
+          resolve();
+        }
+      }, 2000);
+      page.once('close', () => {
+        clearInterval(timer);
+        resolve();
+      });
+    });
+  } else {
+    await browser.close();
+  }
 }
 
 main().catch((e) => {
