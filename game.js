@@ -9,6 +9,8 @@
   const tilesEl = document.getElementById('tiles');
   const scoreEl = document.getElementById('score');
   const bestEl = document.getElementById('best');
+  const movesEl = document.getElementById('moves');
+  const timeEl = document.getElementById('time');
   const overlayEl = document.getElementById('overlay');
   const overlayTitle = document.getElementById('overlay-title');
   const overlayText = document.getElementById('overlay-text');
@@ -37,6 +39,8 @@
   let won = false;
   let over = false;
   let busy = false;
+  let moves = 0;
+  let startTime = Date.now();
   let nextId = 1;
   let CELL = 0;
   let multiplier = 1;
@@ -75,6 +79,8 @@
   function newGame() {
     grid = Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
     score = 0;
+    moves = 0;
+    startTime = Date.now();
     won = false;
     over = false;
     busy = false;
@@ -89,6 +95,7 @@
     computeCellSize();
     render();
     updateScore();
+    updateStats();
   }
 
   function addRandomTile() {
@@ -208,6 +215,21 @@
     }
   }
 
+  function fmtTime(sec) {
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    const pad = (n) => String(n).padStart(2, '0');
+    return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+  }
+
+  function updateStats() {
+    movesEl.textContent = moves;
+    if (!over) {
+      timeEl.textContent = fmtTime(Math.floor((Date.now() - startTime) / 1000));
+    }
+  }
+
   function move(dirName) {
     if (busy || over) return;
     const dir = DIRS[dirName];
@@ -315,6 +337,8 @@
       return;
     }
 
+    moves++;
+    updateStats();
     busy = true;
     addRandomTile();
     updateScore();
@@ -468,12 +492,17 @@
   bestEl.textContent = best;
   newGame();
 
+  // 每秒刷新本局用时
+  setInterval(updateStats, 1000);
+
   // Testing/debug hook (harmless in production).
   if (typeof window !== 'undefined') {
     window.__game2048 = {
       newGame,
       move,
       eliminateSmallest,
+      getMoves: () => moves,
+      getTimeSec: () => Math.floor((Date.now() - startTime) / 1000),
       getGrid: () => grid.map((row) => row.map((t) => (t ? t.value : 0))),
       getScore: () => score,
       getMultiplier: () => multiplier,
@@ -497,6 +526,8 @@
           )
         );
         score = 0;
+        moves = 0;
+        startTime = Date.now();
         won = false;
         over = false;
         busy = false;
@@ -506,6 +537,7 @@
         computeCellSize();
         render();
         updateScore();
+        updateStats();
       },
     };
   }
