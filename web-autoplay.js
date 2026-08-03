@@ -26,7 +26,17 @@
  */
 'use strict';
 
-const { chromium } = require('C:/Users/zhangjie/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+let chromium;
+try {
+  ({ chromium } = require('C:/Users/zhangjie/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright'));
+} catch (e) {
+  try {
+    ({ chromium } = require('playwright'));
+  } catch (e2) {
+    console.error('未找到 Playwright 浏览器自动化库。请安装：npm install playwright');
+    process.exit(1);
+  }
+}
 const ai = require('./ai.js');
 const { bestMoveCpp } = require('./engine.js');
 
@@ -35,7 +45,7 @@ const KEYMAP = { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'Ar
 function parseArgs() {
   const a = process.argv.slice(2);
   const get = (k, d) => {
-    const i = a.indexOf(k);
+    const i = a.lastIndexOf(k);
     return i >= 0 && i + 1 < a.length ? a[i + 1] : d;
   };
   const has = (k) => a.includes(k);
