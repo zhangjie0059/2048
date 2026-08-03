@@ -13,7 +13,8 @@
  *   --target-tile N     达到该方块即停止（默认 32768）
  *   --moves N           最多走 N 步（调试用）
  *   --once              只走一步
- *   --headed            显示浏览器窗口（默认无头）
+ *   --headed            显示浏览器窗口（web-run.bat 默认已加；直接跑脚本时默认无头）
+ *   --headless          强制无头（优先级高于 --headed）
  *   --autorestart       游戏结束后自动点“新游戏”重开（默认开启）
  *   --no-autorestart    关闭自动重开
  *   --delay MS          每步后等待动画的毫秒数（默认 160）
@@ -56,7 +57,7 @@ function parseArgs() {
     targetTile: parseInt(get('--target-tile', '32768'), 10),
     moves: has('--moves') ? parseInt(get('--moves', '0'), 10) : null,
     once: has('--once'),
-    headed: has('--headed'),
+    headed: has('--headed') && !has('--headless'),
     autorestart: !has('--no-autorestart'),
     delay: parseInt(get('--delay', '160'), 10),
     verbose: has('--verbose'),

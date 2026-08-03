@@ -9,6 +9,8 @@ rem   web-run.bat <url> --headed
 rem       -> show the browser window (default is headless)
 rem   web-run.bat <url> --budget 1000000
 rem       -> override C++ per-move search budget (default 2097152)
+rem   web-run.bat --headless
+rem       -> run in the background without a visible window
 setlocal
 
 set "NODE=C:\Users\zhangjie\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe"
@@ -29,5 +31,5 @@ if "%FIRST:~0,1%"=="-" (
 )
 
 echo Starting web autoplay: %URL%
-"%NODE%" "%~dp0web-autoplay.js" --url "%URL%" --budget 2097152 %EXTRA%
+"%NODE%" "%~dp0web-autoplay.js" --url "%URL%" --budget 2097152 --headed %EXTRA%
 endlocal
