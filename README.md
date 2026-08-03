@@ -96,3 +96,45 @@ node emulator-autoplay.js --cpp --budget 2000000
 ```
 
 `2048ai.exe` 不存在时脚本会自动回退到 JS AI。
+
+## 统一入口：App 版 + 网页版双模自动玩
+
+同一套 C++ 强 AI 引擎（`2048ai.exe`，共享封装见 `engine.js`）可以驱动两种载体：
+
+```bash
+node autoplay.js --target web --url <网页2048地址>        # 网页版
+node autoplay.js --target app                             # 雷电模拟器 App 版
+```
+
+### 网页版（web-autoplay.js）
+
+使用 Playwright 驱动系统 Chrome/Edge，读取 DOM 棋盘（兼容 Cirulli 系
+`.tile-position-x-y` 与 transform 定位系；若页面提供 `window.__game2048.getGrid()`
+则直接读取精确棋盘），把 16 个数喂给 C++ 引擎，再用方向键走子。
+
+```bash
+node web-autoplay.js --url http://localhost:8000/ --budget 2097152
+node web-autoplay.js --url https://play2048.co/ --budget 2097152 --headed --autorestart
+```
+
+常用参数：
+
+- `--budget N`：C++ 单步搜索预算，越大越强越慢（冲 32768 建议 2097152）
+- `--target-tile N`：达到该方块即停止（默认 32768）
+- `--moves N` / `--once`：调试用，限制步数或只走一步
+- `--headed`：显示浏览器窗口（默认无头）
+- `--autorestart` / `--no-autorestart`：游戏结束自动点“新游戏”重开（默认开启）
+- `--delay MS`：每步等待动画的毫秒数（默认 160）
+
+### App 版（emulator-autoplay.js）
+
+```bash
+node emulator-autoplay.js --cpp --budget 2097152
+node emulator-autoplay.js --cpp --budget 2097152 --restart-tap 450,1400
+```
+
+- 新增 adb 掉线自动重连（实例端口 = 5555 + index*2）
+- `--restart-tap x,y`：游戏结束后点击“新游戏”按钮自动重开（坐标按 900x1600 竖屏）
+- 环境变量：`LD_INDEX`（实例索引）、`DELAY`、`LD_ADB`、`RESTART_TAP`
+
+两种模式共用 `engine.js` 中的 `bestMoveCpp(values, budget)`，决策核心完全一致。

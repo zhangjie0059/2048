@@ -37,27 +37,12 @@ try {
 const PNG = pngModule.PNG || pngModule;
 
 const ai = require('./ai.js');
-const EXE = process.env.AI_EXE || path.join(__dirname, '2048ai.exe');
+const { bestMoveCpp } = require('./engine.js');
 
 const LDCONSOLE = process.env.LDCONSOLE || 'E:/leidian/LDPlayer9/ldconsole.exe';
+const ADB = process.env.LD_ADB || 'E:/leidian/LDPlayer9/adb.exe';
 const INDEX = process.env.LD_INDEX || '0';
 const DELAY = parseInt(process.env.DELAY, 10) || 350;
-
-function bestMoveCpp(values, budget) {
-  if (!fs.existsSync(EXE)) return null;
-  const input = values.flat().join(' ') + '\n';
-  const args = ['move'];
-  if (budget > 0) args.push('--budget', String(budget));
-  const out = execFileSync(EXE, args, {
-    input,
-    encoding: 'utf8',
-    timeout: 60000,
-    stdio: ['pipe', 'pipe', 'ignore'],
-  });
-  const code = parseInt(out.trim(), 10);
-  if (!Number.isFinite(code) || code < 0 || code > 3) return null;
-  return ['up', 'down', 'left', 'right'][code];
-}
 
 // 标准 2048 方块色板（该 App 的 4 号方块实测为 rgb(236,220,190)，与标准色非常接近）
 const PALETTE = [
@@ -87,16 +72,35 @@ function adbCmd(cmd, binary = false) {
   let lastErr;
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
-      return execFileSync(LDCONSOLE, args, {
+      const out = execFileSync(LDCONSOLE, args, {
         encoding: binary ? null : 'utf8',
         maxBuffer: 128 * 1024 * 1024,
         stdio: ['ignore', 'pipe', 'ignore'],
       });
+      if (binary) {
+        if (out && out.length > 8 && out[0] === 0x89 && out[1] === 0x50) return out;
+        lastErr = new Error('截图数据无效（连接可能已断开）');
+      } else {
+        const s = String(out);
+        if (!/not found|error:|unable to connect|closed/i.test(s)) return s;
+        lastErr = new Error(s.trim().slice(0, 120));
+      }
     } catch (e) {
       lastErr = e;
-      // 模拟器 adb 偶发 "device not found"，稍等重试
+    }
+    // 掉线重连：LDPlayer 实例端口 = 5555 + index*2
+    const port = 5555 + parseInt(INDEX, 10) * 2;
+    try {
+      execFileSync(ADB, ['connect', `127.0.0.1:${port}`], {
+        encoding: 'utf8',
+        timeout: 15000,
+      });
+    } catch (e) {
+      /* 重连失败也继续重试 */
+    }
+    {
       const start = Date.now();
-      while (Date.now() - start < 500) { /* busy wait */ }
+      while (Date.now() - start < 600) { /* busy wait */ }
     }
   }
   throw lastErr;
@@ -311,6 +315,15 @@ const useCpp = args.includes('--cpp') || process.env.AI_CPP === '1';
 const budgetArg = args.includes('--budget')
   ? parseInt(args[args.indexOf('--budget') + 1], 10)
   : 400000;
+const restartTap = (() => {
+  const raw = args.includes('--restart-tap')
+    ? args[args.indexOf('--restart-tap') + 1]
+    : process.env.RESTART_TAP;
+  if (!raw) return null;
+  const m = raw.split(/[,，]/).map((s) => parseInt(s.trim(), 10));
+  if (m.length === 2 && Number.isFinite(m[0]) && Number.isFinite(m[1])) return { x: m[0], y: m[1] };
+  return null;
+})();
 
 function main() {
   const calibrate = args.includes('--calibrate');
@@ -406,6 +419,14 @@ function main() {
     }
     if (!hasLegalMove(values)) {
       console.log(`游戏结束: 共 ${moves} 步, 最大方块 ${maxV}, 警告数 ${bad}`);
+      if (restartTap) {
+        console.log(`点击重开按钮 (${restartTap.x},${restartTap.y}) ...`);
+        adbCmd(`shell input tap ${restartTap.x} ${restartTap.y}`);
+        sleepSync(1200);
+        prevGrid = null;
+        lastDir = null;
+        continue;
+      }
       break;
     }
 
