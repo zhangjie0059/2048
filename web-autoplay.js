@@ -11,6 +11,7 @@
  *   --budget N          C++ AI 单步搜索预算（越大越强越慢，冲 32768 建议 2097152）
  *   --engine cpp|js     决策引擎（默认 cpp，失败自动回退 js）
  *   --target-tile N     达到该方块即停止（默认 32768）
+ *   --set-grid "16个数"  从指定棋盘接着玩（4x4，从上到下、从左到右，本仓库游戏专用）
  *   --moves N           最多走 N 步（调试用）
  *   --once              只走一步
  *   --headed            显示浏览器窗口（web-run.bat 默认已加；直接跑脚本时默认无头）
@@ -26,6 +27,8 @@
  */
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 let chromium;
 try {
   ({ chromium } = require('C:/Users/zhangjie/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright'));
@@ -56,6 +59,7 @@ function parseArgs() {
     targetTile: parseInt(get('--target-tile', '32768'), 10),
     moves: has('--moves') ? parseInt(get('--moves', '0'), 10) : null,
     once: has('--once'),
+    setGrid: get('--set-grid', null),
     headed: has('--headed') && !has('--headless'),
     autorestart: has('--autorestart'),
     delay: parseInt(get('--delay', '160'), 10),
@@ -258,10 +262,29 @@ async function restartGame(page) {
 }
 
 async function main() {
-  const browser = await chromium.launch({ channel: 'chrome', headless: !opt.headed });
-  const context = await browser.newContext({ viewport: { width: 900, height: 1600 } });
+  // 使用固定配置目录，localStorage（游戏进度/最高分）在重启后仍保留；
+  // 配置目录被占用（另一个实例在跑）时退回临时配置
+  const PROFILE = path.join(__dirname, '.chrome-profile');
+  let context;
+  let closed = false;
+  try {
+    context = await chromium.launchPersistentContext(PROFILE, {
+      channel: 'chrome',
+      headless: !opt.headed,
+      viewport: { width: 900, height: 1600 },
+    });
+  } catch (e) {
+    const browser = await chromium.launch({ channel: 'chrome', headless: !opt.headed });
+    context = await browser.newContext({ viewport: { width: 900, height: 1600 } });
+  }
   const page = await context.newPage();
   page.on('dialog', (d) => d.dismiss().catch(() => {}));
+  page.on('close', () => {
+    closed = true;
+  });
+  context.on('close', () => {
+    closed = true;
+  });
 
   console.log(`打开 ${opt.url} ...`);
   await page.goto(opt.url, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -270,8 +293,34 @@ async function main() {
   if (board) board = await readBoardStable(page, 300);
   if (!board) {
     console.error('未在页面中找到 2048 棋盘（.tile 元素）。请确认 URL 是网页版 2048 游戏。');
-    await browser.close();
+    await context.close();
     process.exit(1);
+  }
+  if (opt.setGrid) {
+    const nums = opt.setGrid
+      .split(/[\s,，]+/)
+      .map((s) => parseInt(s, 10))
+      .filter((n) => Number.isFinite(n));
+    if (nums.length !== 16) {
+      console.error('--set-grid 需要恰好 16 个数字（4x4，从上到下、从左到右，0 表示空格）。');
+      await context.close();
+      process.exit(1);
+    }
+    const injected = await page.evaluate((g) => {
+      if (window.__game2048 && typeof window.__game2048.setGrid === 'function') {
+        window.__game2048.setGrid(g);
+        return true;
+      }
+      return false;
+    }, [nums.slice(0, 4), nums.slice(4, 8), nums.slice(8, 12), nums.slice(12, 16)]);
+    if (!injected) {
+      console.error('该页面没有 __game2048.setGrid 钩子，无法从指定棋盘继续。');
+      await context.close();
+      process.exit(1);
+    }
+    await page.waitForTimeout(300);
+    board = await readBoardStable(page, 300);
+    console.log(`已载入指定棋盘（最大方块 ${maxTile(board)}），继续自动玩。`);
   }
   console.log('棋盘读取成功，开始自动玩。');
 
@@ -310,7 +359,32 @@ async function main() {
     }
     if (ai.legalMoves(board).length === 0) {
       console.log(`游戏结束: 共 ${moves} 步, 本局最大方块 ${gameMax}, 最高方块 ${bestOverall}, 分数 ${score}, 告警 ${bad}`);
-      if (!opt.autorestart) break;
+      if (!opt.autorestart) {
+        // 保持窗口并监视棋盘：用户用「消除最小」救活后自动继续
+        console.log('等待你使用「消除最小」救活（或关闭窗口退出）...');
+        let rescued = false;
+        while (!closed) {
+          let cur = null;
+          try {
+            cur = await readBoardStable(page, 250);
+          } catch (e) {
+            break; // 页面/浏览器已被关闭
+          }
+          if (cur && ai.legalMoves(cur).length > 0) {
+            board = cur;
+            rescued = true;
+            break;
+          }
+          await page.waitForTimeout(1000);
+        }
+        if (rescued) {
+          console.log('检测到救活，继续自动玩！');
+          prevGrid = null;
+          lastDir = null;
+          continue;
+        }
+        break;
+      }
       const r = await restartGame(page);
       if (opt.verbose) console.log(`尝试重开: ${r ? '已点击' : '已按 R/刷新'}`);
       await page.waitForTimeout(800);
@@ -409,25 +483,24 @@ async function main() {
     // 保持窗口打开，让用户能看到最终棋盘/分数；按 Ctrl+C 或关闭窗口后脚本退出。
     console.log('游戏已结束，浏览器窗口保持打开供查看结果。按 Ctrl+C 或直接关闭窗口退出。');
     await new Promise((resolve) => {
+      if (closed) return resolve();
       const timer = setInterval(() => {
-        let connected = false;
-        try {
-          connected = browser.isConnected();
-        } catch (e) {
-          connected = false;
-        }
-        if (!connected) {
+        if (closed) {
           clearInterval(timer);
           resolve();
         }
-      }, 2000);
+      }, 1000);
+      context.once('close', () => {
+        clearInterval(timer);
+        resolve();
+      });
       page.once('close', () => {
         clearInterval(timer);
         resolve();
       });
     });
   } else {
-    await browser.close();
+    await context.close();
   }
 }
 

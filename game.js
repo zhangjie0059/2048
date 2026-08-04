@@ -96,6 +96,7 @@
     render();
     updateScore();
     updateStats();
+    saveState();
   }
 
   function addRandomTile() {
@@ -230,6 +231,57 @@
     }
   }
 
+  // 把当前对局保存到 localStorage（关掉页面/重启脚本后可以接着玩）
+  function saveState() {
+    try {
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      localStorage.setItem(
+        'game-2048-' + multiplier,
+        JSON.stringify({
+          grid: grid.map((row) => row.map((t) => (t ? t.value : 0))),
+          score,
+          moves,
+          elapsed,
+          won,
+          over,
+        })
+      );
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
+  // 页面加载时恢复上次未结束的对局；没有则返回 false
+  function restoreState() {
+    try {
+      const raw = localStorage.getItem('game-2048-' + multiplier);
+      if (!raw) return false;
+      const s = JSON.parse(raw);
+      if (!s || !Array.isArray(s.grid) || s.grid.length !== SIZE) return false;
+      grid = s.grid.map((row, r) =>
+        row.map((v, c) =>
+          v
+            ? { id: nextId++, row: r, col: c, value: v, isNew: false, merged: false, absorbed: null }
+            : null
+        )
+      );
+      score = s.score || 0;
+      moves = s.moves || 0;
+      won = !!s.won;
+      over = !!s.over;
+      startTime = Date.now() - (s.elapsed || 0) * 1000;
+      hideOverlay();
+      if (over) showOverlay('游戏结束', '没有可移动的方块了', '新游戏', newGame);
+      computeCellSize();
+      render();
+      updateScore();
+      updateStats();
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   function move(dirName) {
     if (busy || over) return;
     const dir = DIRS[dirName];
@@ -343,6 +395,7 @@
     addRandomTile();
     updateScore();
     render({ keepAbsorbed: true });
+    saveState();
 
     const settleMs = 220;
     setTimeout(() => {
@@ -459,6 +512,7 @@
       hideOverlay();
     }
     render();
+    saveState();
   }
 
   restartBtn.addEventListener('click', newGame);
@@ -490,7 +544,7 @@
   multiplierSelect.value = String(multiplier);
   loadBest();
   bestEl.textContent = best;
-  newGame();
+  if (!restoreState()) newGame();
 
   // 每秒刷新本局用时
   setInterval(updateStats, 1000);
@@ -538,6 +592,7 @@
         render();
         updateScore();
         updateStats();
+        saveState();
       },
     };
   }

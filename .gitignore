@@ -6,3 +6,4 @@ bench*.txt
 bench*.err
 emulator-shot.png
 screen_*.png
+.chrome-profile/
