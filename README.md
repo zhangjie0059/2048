@@ -113,7 +113,7 @@ node web-autoplay.js --url https://play2048.co/ --budget 2097152 --headed --auto
 常用参数：
 
 - `--budget N`：C++ 单步搜索预算，越大越强越慢（冲 32768 建议 2097152）
-- `--target-tile N`：达到该方块即停止（默认 32768）
+- `--target-tile N`：达到该方块即停止（默认 0 = 不限制，一直玩到游戏结束）
 - `--moves N` / `--once`：调试用，限制步数或只走一步
 - `--headed`：显示浏览器窗口（默认无头）
 - `--autorestart`：游戏结束后自动点“新游戏”重开（默认关闭，不加则结束后停止）

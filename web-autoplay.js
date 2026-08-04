@@ -10,7 +10,7 @@
  *   --url URL           网页 2048 地址（必填）
  *   --budget N          C++ AI 单步搜索预算（越大越强越慢，冲 32768 建议 2097152）
  *   --engine cpp|js     决策引擎（默认 cpp，失败自动回退 js）
- *   --target-tile N     达到该方块即停止（默认 32768）
+ *   --target-tile N     达到该方块即停止（默认 0 = 不限制，一直玩到游戏结束）
  *   --set-grid "16个数"  从指定棋盘接着玩（4x4，从上到下、从左到右，本仓库游戏专用）
  *   --moves N           最多走 N 步（调试用）
  *   --once              只走一步
@@ -56,7 +56,7 @@ function parseArgs() {
     url: get('--url', null),
     budget: parseInt(get('--budget', '2097152'), 10),
     engine: get('--engine', 'cpp'),
-    targetTile: parseInt(get('--target-tile', '32768'), 10),
+    targetTile: parseInt(get('--target-tile', '0'), 10),
     moves: has('--moves') ? parseInt(get('--moves', '0'), 10) : null,
     once: has('--once'),
     setGrid: get('--set-grid', null),
@@ -266,6 +266,7 @@ async function main() {
   // 配置目录被占用（另一个实例在跑）时退回临时配置
   const PROFILE = path.join(__dirname, '.chrome-profile');
   let context;
+  let browserHandle = null;
   let closed = false;
   try {
     context = await chromium.launchPersistentContext(PROFILE, {
@@ -274,8 +275,8 @@ async function main() {
       viewport: { width: 900, height: 1600 },
     });
   } catch (e) {
-    const browser = await chromium.launch({ channel: 'chrome', headless: !opt.headed });
-    context = await browser.newContext({ viewport: { width: 900, height: 1600 } });
+    browserHandle = await chromium.launch({ channel: 'chrome', headless: !opt.headed });
+    context = await browserHandle.newContext({ viewport: { width: 900, height: 1600 } });
   }
   const page = await context.newPage();
   page.on('dialog', (d) => d.dismiss().catch(() => {}));
@@ -286,6 +287,18 @@ async function main() {
     closed = true;
   });
 
+  async function closeAll() {
+    try {
+      if (browserHandle) {
+        await browserHandle.close();
+      } else {
+        await context.close();
+      }
+    } catch (e) {
+      /* 忽略 */
+    }
+  }
+
   console.log(`打开 ${opt.url} ...`);
   await page.goto(opt.url, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
@@ -293,7 +306,7 @@ async function main() {
   if (board) board = await readBoardStable(page, 300);
   if (!board) {
     console.error('未在页面中找到 2048 棋盘（.tile 元素）。请确认 URL 是网页版 2048 游戏。');
-    await context.close();
+    await closeAll();
     process.exit(1);
   }
   if (opt.setGrid) {
@@ -303,7 +316,7 @@ async function main() {
       .filter((n) => Number.isFinite(n));
     if (nums.length !== 16) {
       console.error('--set-grid 需要恰好 16 个数字（4x4，从上到下、从左到右，0 表示空格）。');
-      await context.close();
+      await closeAll();
       process.exit(1);
     }
     const injected = await page.evaluate((g) => {
@@ -315,7 +328,7 @@ async function main() {
     }, [nums.slice(0, 4), nums.slice(4, 8), nums.slice(8, 12), nums.slice(12, 16)]);
     if (!injected) {
       console.error('该页面没有 __game2048.setGrid 钩子，无法从指定棋盘继续。');
-      await context.close();
+      await closeAll();
       process.exit(1);
     }
     await page.waitForTimeout(300);
@@ -333,6 +346,7 @@ async function main() {
   let bad = 0;
   let score = 0;
   let stuck = 0;
+  let lastMilestone = 0;
 
   while (true) {
     board = await readBoardStable(page, 180);
@@ -345,6 +359,28 @@ async function main() {
     bestOverall = Math.max(bestOverall, mx);
     const sc = await readScore(page);
     if (sc !== null) score = sc;
+
+    // 里程碑提示
+    const MILESTONES = [1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072];
+    for (const m of MILESTONES) {
+      if (mx >= m && m > lastMilestone) {
+        console.log(`+++ 达成 ${m} 方块！继续冲击更高分（第 ${moves} 步）`);
+        lastMilestone = m;
+      }
+    }
+    // 自动关闭"你赢了"弹窗（仅当棋盘还能走时；游戏结束弹窗交给游戏结束逻辑）
+    const overlayVisible = await page.evaluate(() => {
+      const el = document.getElementById('overlay');
+      return !!el && !el.classList.contains('hidden');
+    });
+    if (overlayVisible && ai.legalMoves(board).length > 0) {
+      try {
+        await page.click('#overlay-btn', { timeout: 1500 });
+        await page.waitForTimeout(200);
+      } catch (e) {
+        /* 忽略 */
+      }
+    }
 
     if (opt.once) {
       console.log(`已读取棋盘，最大方块 ${mx}。`);
@@ -466,7 +502,7 @@ async function main() {
     if (opt.verbose) {
       console.log(`step ${moves}: dir=${dir} max=${maxTile(board)} score=${sc ?? '-'}`);
     }
-    if (maxTile(board) >= opt.targetTile) {
+    if (opt.targetTile > 0 && maxTile(board) >= opt.targetTile) {
       console.log(`!!!! 达成目标: 出现 ${maxTile(board)} 方块！共 ${moves} 步, 分数 ${score}`);
       break;
     }
@@ -500,7 +536,9 @@ async function main() {
       });
     });
   } else {
-    await context.close();
+    await closeAll();
+    // 保险：避免个别环境关闭不干净导致进程残留
+    setTimeout(() => process.exit(0), 1000).unref();
   }
 }
 
