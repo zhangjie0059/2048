@@ -271,7 +271,11 @@
       over = !!s.over;
       startTime = Date.now() - (s.elapsed || 0) * 1000;
       hideOverlay();
-      if (over) showOverlay('游戏结束', '没有可移动的方块了', '新游戏', newGame);
+      if (over) {
+        showOverlay('游戏结束', `没有可移动的方块了，最终分数 ${score} 分`, '再来一局', newGame);
+      } else {
+        checkEnd(); // 存档棋盘若已无路可走/已达目标，正确显示结束/胜利界面
+      }
       computeCellSize();
       render();
       updateScore();
