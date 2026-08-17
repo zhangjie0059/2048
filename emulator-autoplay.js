@@ -44,6 +44,8 @@ const LDCONSOLE = process.env.LDCONSOLE || 'E:/leidian/LDPlayer9/ldconsole.exe';
 const ADB = process.env.LD_ADB || 'E:/leidian/LDPlayer9/adb.exe';
 const INDEX = process.env.LD_INDEX || '0';
 const DELAY = parseInt(process.env.DELAY, 10) || 350;
+// 倍数模式：1倍新方块 2/4，4倍=8，8倍=16，16倍=32，64倍=128...
+const MULTIPLIER = parseInt(process.env.MULTIPLIER || process.env.LD_MULTIPLIER || '1', 10) || 1;
 
 // 全民投资人内嵌 2048：方块 = 填充色 + 描边色，两者成对唯一确定数值。
 // 实测/用户确认：2=米底+青边，4=橙底+紫边，8=蓝底+品红边，512=深底+品红边，1024=深底+蓝边。
@@ -492,11 +494,13 @@ function main() {
           }
           return d;
         };
-        // 兼容 1 倍（新方块 2/4）与 4 倍（新方块 8）模式
-        const isOk = (d) =>
-          d.length === 1 &&
-          sim.grid[d[0].r][d[0].c] === 0 &&
-          (d[0].next === 2 || d[0].next === 4 || d[0].next === 8);
+        // 兼容任意倍数：1倍新方块 2/4，N 倍新方块 = 2*N（4倍=8，8倍=16，16倍=32，64倍=128...）
+        const isOk = (d) => {
+          if (d.length !== 1 || sim.grid[d[0].r][d[0].c] !== 0) return false;
+          const v = d[0].next;
+          if (MULTIPLIER === 1) return v === 2 || v === 4;
+          return v === 2 * MULTIPLIER;
+        };
 
         let diffs = diffCells(values);
         if (!isOk(diffs)) {

@@ -1,6 +1,7 @@
 // 2048 自动玩启动器：双击本 exe 即用 C++ 强 AI（210 万预算）驱动模拟器里的 2048。
-// 用法：2048自动玩.exe          -> 操作模拟器实例 0
-//       2048自动玩.exe 1        -> 操作模拟器实例 1（可同时开多个实例并行跑）
+// 用法：2048自动玩.exe              -> 操作模拟器实例 0，1 倍
+//       2048自动玩.exe 1            -> 操作模拟器实例 1（可多开并行）
+//       2048自动玩.exe 0 64         -> 实例 0，64 倍玩法（新方块 128）
 // 原理：找到 node.exe，运行同目录下的 emulator-autoplay.js --cpp --budget 2097152。
 #include <windows.h>
 #include <stdio.h>
@@ -12,8 +13,14 @@ int wmain(int argc, wchar_t** argv) {
     wchar_t idx[16];
     swprintf(idx, 16, L"%d", index);
     SetEnvironmentVariableW(L"LD_INDEX", idx);
+    int multiplier = 1;
+    if (argc > 2) multiplier = _wtoi(argv[2]);
+    if (multiplier < 1) multiplier = 1;
+    wchar_t mlt[16];
+    swprintf(mlt, 16, L"%d", multiplier);
+    SetEnvironmentVariableW(L"MULTIPLIER", mlt);
     wchar_t title[64];
-    swprintf(title, 64, L"2048自动玩 - 实例%d", index);
+    swprintf(title, 64, L"2048自动玩 - 实例%d ×%d", index, multiplier);
     SetConsoleTitleW(title);
 
     wchar_t dir[MAX_PATH];
