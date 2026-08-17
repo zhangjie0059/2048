@@ -57,6 +57,11 @@ const PALETTE = [
   { v: 128, rgb: [150, 160, 168] },
   { v: 256, rgb: [40, 40, 32] },
   { v: 512, rgb: [247, 230, 215] },
+  { v: 1024, rgb: [96, 120, 184] },
+  { v: 2048, rgb: [216, 88, 88] },
+  { v: 4096, rgb: [224, 200, 120] },
+  { v: 16384, rgb: [80, 192, 208] },
+  { v: 32768, rgb: [224, 128, 200] },
 ];
 // 运行期自动学习到的颜色（以游戏物理模拟结果为真值）
 const PALETTE_EXTRA = [];
@@ -414,6 +419,17 @@ function main() {
   const board = findBoard(png);
   console.log(`棋盘区域: x=${board.x} y=${board.y} w=${board.w} h=${board.h}`);
 
+  if (!calibrate) {
+    const g0 = readBoard(png, board);
+    const v0 = sanitizeValues(gridValues(g0));
+    if (!hasLegalMove(v0)) {
+      console.log('当前棋盘已无法继续（无路可走），脚本已暂停，游戏界面保持不动。');
+      console.log('请使用道具消除方块后，重新运行本脚本继续玩。');
+      return;
+    }
+    console.log('检测到已有棋盘，从残局继续自动玩。');
+  }
+
   if (calibrate) {
     const grid = readBoard(png, board);
     fs.writeFileSync('emulator-shot.png', buf);
@@ -504,7 +520,8 @@ function main() {
       break;
     }
     if (!hasLegalMove(values)) {
-      console.log(`游戏结束: 共 ${moves} 步, 最大方块 ${maxV}, 警告数 ${bad}`);
+      console.log(`游戏无法继续（无路可走）: 共 ${moves} 步, 最大方块 ${maxV}, 警告数 ${bad}`);
+      console.log('脚本已暂停，游戏界面保持不动。请使用道具消除方块后，重新运行脚本继续玩。');
       if (restartTap) {
         console.log(`点击重开按钮 (${restartTap.x},${restartTap.y}) ...`);
         adbCmd(`shell input tap ${restartTap.x} ${restartTap.y}`);
@@ -523,7 +540,8 @@ function main() {
     }
     if (!dir) dir = ai.bestMove(values, { depth: depthArg || undefined, timeoutMs: 250 });
     if (!dir) {
-      console.log(`游戏结束: 共 ${moves} 步, 最大方块 ${maxV}, 警告数 ${bad}`);
+      console.log(`无可用方向（可能已无法继续）: 共 ${moves} 步, 最大方块 ${maxV}, 警告数 ${bad}`);
+      console.log('脚本已暂停，游戏界面保持不动。请使用道具消除方块后，重新运行脚本继续玩。');
       break;
     }
     // 卡死检测：棋盘连续多步不变则停止（避免引擎基于误读无限空转）
@@ -531,7 +549,8 @@ function main() {
     if (boardKey === lastBoardKey) {
       stuckSteps++;
       if (stuckSteps >= 12) {
-        console.log(`棋盘连续 ${stuckSteps} 步无变化，疑似识别异常或死局，已停止。共 ${moves} 步, 最大方块 ${maxV}`);
+        console.log(`棋盘连续 ${stuckSteps} 步无变化（可能是识别异常或需要道具消除），脚本已暂停。共 ${moves} 步, 最大方块 ${maxV}`);
+        console.log('游戏界面保持不动。若游戏还能走，请重新运行脚本；若已无法走，请用道具消除后重新运行。');
         break;
       }
     } else {
