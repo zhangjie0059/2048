@@ -79,45 +79,27 @@ const KNOWN_BOARD = { x: 88, y: 640, w: 725, h: 730 };
 const CELL_X = [88, 274, 460, 646];
 const CELL_Y = [640, 820, 1006, 1192];
 
-function adbCmd(cmd, binary = false) {
-  const args = ['adb', '--index', INDEX, '--command', cmd];
+function adbCmd(cmd) {
+  // 直连 adb（ldconsole 的滑动/点击偶发静默失效），带重连重试
+  const port = 5555 + parseInt(INDEX, 10) * 2;
+  const device = `127.0.0.1:${port}`;
+  const args = ['-s', device, ...cmd.split(' ')];
   let lastErr;
   for (let attempt = 0; attempt < 8; attempt++) {
     try {
-      const out = execFileSync(LDCONSOLE, args, {
-        encoding: binary ? null : 'utf8',
-        maxBuffer: 128 * 1024 * 1024,
+      const out = execFileSync(ADB, args, {
+        encoding: 'utf8',
+        timeout: 30000,
         stdio: ['ignore', 'pipe', 'ignore'],
       });
-      if (binary) {
-        // PNG 完整性：开头签名 + 结尾 IEND 标记
-        const ok =
-          out &&
-          out.length > 40 &&
-          out[0] === 0x89 &&
-          out[1] === 0x50 &&
-          out[out.length - 8] === 0x49 &&
-          out[out.length - 7] === 0x45 &&
-          out[out.length - 6] === 0x4e &&
-          out[out.length - 5] === 0x44 &&
-          out[out.length - 4] === 0xae &&
-          out[out.length - 3] === 0x42 &&
-          out[out.length - 2] === 0x60 &&
-          out[out.length - 1] === 0x82;
-        if (ok) return out;
-        lastErr = new Error('截图数据无效（可能被截断）');
-      } else {
-        const s = String(out);
-        if (!/not found|error:|unable to connect|closed/i.test(s)) return s;
-        lastErr = new Error(s.trim().slice(0, 120));
-      }
+      const s = String(out);
+      if (!/not found|error:|unable to connect|closed/i.test(s)) return s;
+      lastErr = new Error(s.trim().slice(0, 120));
     } catch (e) {
       lastErr = e;
     }
-    // 掉线重连：LDPlayer 实例端口 = 5555 + index*2
-    const port = 5555 + parseInt(INDEX, 10) * 2;
     try {
-      execFileSync(ADB, ['connect', `127.0.0.1:${port}`], {
+      execFileSync(ADB, ['connect', device], {
         encoding: 'utf8',
         timeout: 15000,
       });
