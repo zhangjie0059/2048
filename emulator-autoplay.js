@@ -491,8 +491,11 @@ function main() {
           }
           return d;
         };
+        // 兼容 1 倍（新方块 2/4）与 4 倍（新方块 8）模式
         const isOk = (d) =>
-          d.length === 1 && sim.grid[d[0].r][d[0].c] === 0 && (d[0].next === 2 || d[0].next === 4);
+          d.length === 1 &&
+          sim.grid[d[0].r][d[0].c] === 0 &&
+          (d[0].next === 2 || d[0].next === 4 || d[0].next === 8);
 
         let diffs = diffCells(values);
         if (!isOk(diffs)) {
