@@ -49,12 +49,15 @@ const DELAY = parseInt(process.env.DELAY, 10) || 350;
 // 实测/用户确认：2=米底+青边，4=橙底+紫边，8=蓝底+品红边，512=深底+品红边，1024=深底+蓝边。
 // 其余数值由脚本在每次合成新数值时自动学习（底色+描边）。
 const PALETTE = [
-  { v: 2, fill: [235, 205, 154], border: [80, 192, 208] },
-  { v: 4, fill: [188, 139, 82], border: [168, 136, 216] },
-  { v: 8, fill: [56, 104, 168], border: [224, 128, 208] },
+  { v: 2, fill: [234, 204, 154], border: [86, 195, 213] },
+  { v: 4, fill: [188, 139, 82], border: [173, 142, 223] },
+  { v: 8, fill: [61, 104, 173], border: [228, 130, 208] },
   { v: 16, fill: [81, 59, 60], border: [96, 120, 189] },
-  { v: 512, fill: [48, 32, 24], border: [224, 128, 208] },
-  { v: 1024, fill: [48, 32, 24], border: [96, 120, 184] },
+  { v: 32, fill: [186, 48, 48], border: [224, 87, 87] },
+  { v: 64, fill: [62, 33, 27], border: [226, 206, 125] },
+  { v: 128, fill: [150, 160, 168], border: [86, 195, 213] },
+  { v: 512, fill: [50, 34, 29], border: [228, 130, 208] },
+  { v: 1024, fill: [50, 35, 29], border: [96, 120, 189] },
 ];
 // 运行期自动学习到的颜色（以游戏物理模拟结果为真值）
 const LEARNED_FILE = path.join(__dirname, 'emulator-learned.json');
@@ -321,8 +324,8 @@ function readBoard(png, board) {
   for (let r = 0; r < 4; r++) {
     const row = [];
     for (let c = 0; c < 4; c++) {
-      // 填充色：格子上部中央（数字上方）；描边色：格子左边缘内侧、垂直居中
-      const fill = modeColor(png, W, CELL_X[c] + 83, CELL_Y[r] + 28, 12);
+      // 填充色：格子上部偏下（避开顶部窄条与数字）；描边色：格子左边缘内侧、垂直居中
+      const fill = modeColor(png, W, CELL_X[c] + 83, CELL_Y[r] + 36, 8);
       const border = modeColor(png, W, CELL_X[c] + 10, CELL_Y[r] + 84, 4);
       const v = matchValuePair(fill, border);
       row.push({ v, rgb: fill, fill, border });
@@ -548,7 +551,7 @@ function main() {
       console.log('脚本已暂停，游戏界面保持不动。请使用道具消除方块后，重新运行脚本继续玩。');
       break;
     }
-    // 卡死检测：棋盘连续多步不变则停止（避免引擎基于误读无限空转）
+    // 卡死检测：棋盘连续多步不变则暂停（避免引擎基于误读无限空转；不擅自改变方向）
     const boardKey = JSON.stringify(values);
     if (boardKey === lastBoardKey) {
       stuckSteps++;
