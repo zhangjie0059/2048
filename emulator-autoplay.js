@@ -62,6 +62,7 @@ const PALETTE = [
 ];
 // 运行期自动学习到的颜色（以游戏物理模拟结果为真值）
 const LEARNED_FILE = path.join(__dirname, 'emulator-learned.json');
+let lastGridHadUnknown = false;
 const PALETTE_EXTRA = (() => {
   try {
     const arr = JSON.parse(fs.readFileSync(LEARNED_FILE, 'utf8'));
@@ -373,14 +374,15 @@ function readGridUntilClean() {
     const grid = readBoard(shot.png, boardNow);
     const values = gridValues(grid);
     const unknown = values.flat().filter((v) => v === -1).length;
-    if (unknown <= 3) {
+    if (unknown > 0) lastGridHadUnknown = true;
+    if (unknown === 0) {
       // 等待动画稳定：间隔后重读，连续两次一致才算干净
       sleepSync(300);
       const shot2 = capture();
       const grid2 = readBoard(shot2.png, findBoard(shot2.png));
       const values2 = gridValues(grid2);
       const unknown2 = values2.flat().filter((v) => v === -1).length;
-      if (unknown2 <= 3 && JSON.stringify(values) === JSON.stringify(values2)) {
+      if (unknown2 === 0 && JSON.stringify(values) === JSON.stringify(values2)) {
         return { values, boardNow, cells: grid };
       }
     }
@@ -453,11 +455,16 @@ function main() {
 
   while (true) {
     const stepStart = Date.now();
-    const clean = readGridUntilClean();
-    if (!clean) {
+  const clean = readGridUntilClean();
+  if (!clean) {
+    if (lastGridHadUnknown) {
+      console.log(`棋盘出现未识别的方块颜色（显示为 ?），为防出错已停止自动玩。共 ${moves} 步, 最大方块 ${maxV}`);
+      console.log('请把当前棋盘上最大的数字告诉我，我学习它的颜色后重新运行。');
+    } else {
       console.log(`屏幕持续异常（可能是广告/弹窗或游戏结束界面），已停止。共 ${moves} 步, 最大方块 ${maxV}`);
-      break;
     }
+    break;
+  }
     let { values, boardNow, cells } = clean;
     // 上一步棋盘是否完全干净（无未知色）——只有干净棋盘才做一致性校验/学习，杜绝误学
     let readClean = cells.flat().every((c) => c.v !== -1);
