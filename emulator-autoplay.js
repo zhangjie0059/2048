@@ -340,6 +340,13 @@ function gridValues(grid) {
   return grid.map((row) => row.map((cell) => cell.v));
 }
 
+// 把识别出的棋盘排版成 4x4 文本（? 表示未知色）
+function formatBoard(grid) {
+  return grid
+    .map((row) => row.map((c) => (c.v === -1 ? '?' : String(c.v)).padStart(5)).join(' '))
+    .join('\n');
+}
+
 // 未知颜色（-1）在喂给 AI/引擎前按空格处理，避免 -1 污染搜索与模拟
 function sanitizeValues(values) {
   return values.map((row) => row.map((v) => (v === -1 ? 0 : v)));
@@ -462,6 +469,7 @@ function main() {
   let stuckSteps = 0;
 
   while (true) {
+    const stepStart = Date.now();
     const clean = readGridUntilClean();
     if (!clean) {
       console.log(`屏幕持续异常（可能是广告/弹窗或游戏结束界面），已停止。共 ${moves} 步, 最大方块 ${maxV}`);
@@ -472,6 +480,9 @@ function main() {
     let readClean = cells.flat().every((c) => c.v !== -1);
     values = sanitizeValues(values);
     maxV = Math.max(maxV, maxTile(values));
+    // 显示当前识别出的棋盘（每步一屏）
+    console.log(formatBoard(cells));
+    console.log('----------------');
 
     // 物理一致性门禁：上一步的结果应等于“上一步棋盘的模拟移动 + 一个新生成的方块”，
     // 不符合就等待动画/界面稳定后重读，最多重试 4 次
@@ -577,17 +588,17 @@ function main() {
       stuckSteps = 0;
       lastBoardKey = boardKey;
     }
-    if (verbose) console.log(`step ${moves}: dir=${dir} max=${maxV}`);
     swipe(boardNow, dir);
     prevGrid = values;
     prevClean = readClean;
     lastDir = dir;
     moves++;
     if (once) {
-      console.log(`已走一步（方向 ${dir}），最大方块 ${maxV}`);
+      console.log(`已走一步（方向 ${dir}），最大方块 ${maxV}，用时 ${((Date.now() - stepStart) / 1000).toFixed(1)}s`);
       break;
     }
     sleepSync(DELAY);
+    console.log(`第 ${moves} 步: ${dir} | 最大=${maxV} | 用时 ${((Date.now() - stepStart) / 1000).toFixed(1)}s`);
   }
 }
 
