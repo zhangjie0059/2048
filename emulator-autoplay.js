@@ -296,17 +296,17 @@ function matchValuePair(fill, border) {
  * 学习一个 (底色, 描边) -> 数值 的映射（仅当该值尚未被学习）。
  */
 function learnColorPair(value, fill, border) {
-  if (!value || !fill || !border) return;
+  if (!value || !fill || !border) return false;
   const bgD = Math.abs(fill[0] - BOARD_BG[0]) + Math.abs(fill[1] - BOARD_BG[1]) + Math.abs(fill[2] - BOARD_BG[2]);
-  if (bgD < 30) return; // 底色不算方块
+  if (bgD < 30) return false; // 底色不算方块
   const all = PALETTE.concat(PALETTE_EXTRA);
   for (const p of all) {
-    if (p.v === value) return;
+    if (p.v === value) return false;
     if (
       Math.hypot(fill[0] - p.fill[0], fill[1] - p.fill[1], fill[2] - p.fill[2]) < 20 &&
       Math.hypot(border[0] - p.border[0], border[1] - p.border[1], border[2] - p.border[2]) < 20
     ) {
-      return;
+      return false;
     }
   }
   PALETTE_EXTRA.push({ v: value, fill: [fill[0], fill[1], fill[2]], border: [border[0], border[1], border[2]] });
@@ -316,6 +316,7 @@ function learnColorPair(value, fill, border) {
     /* 忽略 */
   }
   console.log(`已学习方块 ${value}: 底色(${fill.join(',')}) 描边(${border.join(',')})`);
+  return true;
 }
 
 function readBoard(png, board) {
@@ -512,10 +513,22 @@ function main() {
           } else if (retried) {
             if (verbose) console.log(`step ${moves}: 重读后一致性通过`);
           }
-          // 自校准：以模拟结果为真值，学习未识别/误读格子的真实颜色
+          // 自校准：以模拟结果为真值，学习未识别/误读格子的真实颜色。
+          // 每次合成新数值（尤其是新的最大数）必须立刻学习，否则误读会打乱 AI 决策。
           for (const d of diffs) {
-            if (sim.grid[d.r][d.c] !== 0 && cells[d.r][d.c].v !== 0) {
-              learnColorPair(sim.grid[d.r][d.c], cells[d.r][d.c].fill, cells[d.r][d.c].border);
+            const sv = sim.grid[d.r][d.c];
+            if (sv === 0) continue;
+            const cell = cells[d.r][d.c];
+            if (!cell || !cell.fill) continue;
+            const isBg =
+              Math.abs(cell.fill[0] - BOARD_BG[0]) +
+                Math.abs(cell.fill[1] - BOARD_BG[1]) +
+                Math.abs(cell.fill[2] - BOARD_BG[2]) <
+              30;
+            if (isBg) continue; // 空格不学
+            const learned = learnColorPair(sv, cell.fill, cell.border);
+            if (learned && sv > maxV) {
+              console.log(`发现新最大方块 ${sv}，已学习颜色，继续自动玩。`);
             }
           }
         }
