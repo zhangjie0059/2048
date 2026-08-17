@@ -45,32 +45,28 @@ const INDEX = process.env.LD_INDEX || '0';
 const DELAY = parseInt(process.env.DELAY, 10) || 350;
 
 // 标准 2048 方块色板（该 App 的 4 号方块实测为 rgb(236,220,190)，与标准色非常接近）
+// 全民投资人内嵌 2048 的实测色板：2=米色填充，4=橙色填充（数字为红色，描边随数值变化）
 const PALETTE = [
-  { v: 2, rgb: [238, 228, 218] },
-  { v: 4, rgb: [237, 224, 200] },
-  { v: 8, rgb: [242, 177, 121] },
-  { v: 16, rgb: [245, 149, 99] },
-  { v: 32, rgb: [246, 124, 95] },
-  { v: 64, rgb: [246, 94, 59] },
-  { v: 128, rgb: [237, 207, 114] },
-  { v: 256, rgb: [237, 204, 97] },
-  { v: 512, rgb: [237, 200, 80] },
-  { v: 1024, rgb: [237, 197, 63] },
-  { v: 2048, rgb: [237, 194, 46] },
+  { v: 2, rgb: [235, 205, 154] },
+  { v: 4, rgb: [188, 139, 82] },
+  { v: 8, rgb: [56, 104, 168] },
+  { v: 16, rgb: [81, 59, 60] },
+  { v: 32, rgb: [186, 48, 48] },
+  { v: 64, rgb: [56, 32, 24] },
 ];
 // 运行期自动学习到的颜色（以游戏物理模拟结果为真值）
 const PALETTE_EXTRA = [];
 
-// 实测棋盘底色
-const BOARD_BG = [200, 188, 175];
+// 实测棋盘底色（空格）
+const BOARD_BG = [176, 128, 96];
 const BG_TOL = 24;
-// 该 App 在当前分辨率下的实测棋盘位置（动态检测失败时的兜底）
-const KNOWN_BOARD = { x: 52, y: 552, w: 798, h: 828 };
+// 全民投资人 2048 棋盘位置（900x1600 竖屏，动态检测失败时的兜底）
+const KNOWN_BOARD = { x: 88, y: 640, w: 725, h: 730 };
 
 function adbCmd(cmd, binary = false) {
   const args = ['adb', '--index', INDEX, '--command', cmd];
   let lastErr;
-  for (let attempt = 0; attempt < 5; attempt++) {
+  for (let attempt = 0; attempt < 8; attempt++) {
     try {
       const out = execFileSync(LDCONSOLE, args, {
         encoding: binary ? null : 'utf8',
@@ -78,8 +74,22 @@ function adbCmd(cmd, binary = false) {
         stdio: ['ignore', 'pipe', 'ignore'],
       });
       if (binary) {
-        if (out && out.length > 8 && out[0] === 0x89 && out[1] === 0x50) return out;
-        lastErr = new Error('截图数据无效（连接可能已断开）');
+        // PNG 完整性：开头签名 + 结尾 IEND 标记
+        const ok =
+          out &&
+          out.length > 40 &&
+          out[0] === 0x89 &&
+          out[1] === 0x50 &&
+          out[out.length - 8] === 0x49 &&
+          out[out.length - 7] === 0x45 &&
+          out[out.length - 6] === 0x4e &&
+          out[out.length - 5] === 0x44 &&
+          out[out.length - 4] === 0xae &&
+          out[out.length - 3] === 0x42 &&
+          out[out.length - 2] === 0x60 &&
+          out[out.length - 1] === 0x82;
+        if (ok) return out;
+        lastErr = new Error('截图数据无效（可能被截断）');
       } else {
         const s = String(out);
         if (!/not found|error:|unable to connect|closed/i.test(s)) return s;
@@ -106,8 +116,47 @@ function adbCmd(cmd, binary = false) {
   throw lastErr;
 }
 
+// 截图走直连 adb（ldconsole 传大文件会截断），带重连与 PNG 完整性校验
+function binaryAdb(cmd) {
+  const port = 5555 + parseInt(INDEX, 10) * 2;
+  const args = ['-s', `127.0.0.1:${port}`, 'exec-out', ...cmd.split(' ')];
+  for (let attempt = 0; attempt < 8; attempt++) {
+    try {
+      const out = execFileSync(ADB, args, {
+        encoding: null,
+        timeout: 30000,
+        maxBuffer: 64 * 1024 * 1024,
+      });
+      const ok =
+        out &&
+        out.length > 40 &&
+        out[0] === 0x89 &&
+        out[1] === 0x50 &&
+        out[out.length - 8] === 0x49 &&
+        out[out.length - 7] === 0x45 &&
+        out[out.length - 6] === 0x4e &&
+        out[out.length - 5] === 0x44 &&
+        out[out.length - 4] === 0xae &&
+        out[out.length - 3] === 0x42 &&
+        out[out.length - 2] === 0x60 &&
+        out[out.length - 1] === 0x82;
+      if (ok) return out;
+    } catch (e) {
+      /* 重试 */
+    }
+    try {
+      execFileSync(ADB, ['connect', `127.0.0.1:${port}`], { encoding: 'utf8', timeout: 15000 });
+    } catch (e) {
+      /* 重连失败也继续重试 */
+    }
+    const start = Date.now();
+    while (Date.now() - start < 600) { /* busy wait */ }
+  }
+  throw new Error('截图失败（adb 无法连接）');
+}
+
 function capture() {
-  const buf = adbCmd('exec-out screencap -p', true);
+  const buf = binaryAdb('screencap -p');
   return { png: PNG.sync.read(buf), buf };
 }
 
@@ -177,7 +226,7 @@ function findBoard(png) {
 
 function matchValue(r, g, b) {
   const bgD = Math.abs(r - BOARD_BG[0]) + Math.abs(g - BOARD_BG[1]) + Math.abs(b - BOARD_BG[2]);
-  if (bgD < 60) return 0;
+  if (bgD < 25) return 0;
   let best = null;
   let bestD = 40; // 与色板距离超过 40 视为“未知”，宁可重试也不误判
   for (const p of PALETTE) {
@@ -202,6 +251,9 @@ function matchValue(r, g, b) {
  */
 function learnColor(value, rgb) {
   if (!value || !rgb || rgb[0] + rgb[1] + rgb[2] < 200) return;
+  // 棋盘底色不算方块，禁止把底色学成数值
+  const bgD = Math.abs(rgb[0] - BOARD_BG[0]) + Math.abs(rgb[1] - BOARD_BG[1]) + Math.abs(rgb[2] - BOARD_BG[2]);
+  if (bgD < 30) return;
   const all = PALETTE.concat(PALETTE_EXTRA);
   for (const p of all) {
     if (Math.hypot(rgb[0] - p.rgb[0], rgb[1] - p.rgb[1], rgb[2] - p.rgb[2]) < 25) return;
@@ -220,11 +272,11 @@ function readBoard(png, board) {
     for (let c = 0; c < 4; c++) {
       const cx = board.x + c * cellW;
       const cy = board.y + r * cellH;
-      // 采集格子中心 70% 区域的主色（像素直方图众数），抗数字字形与边缘干扰
-      const x0 = Math.round(cx + cellW * 0.15);
-      const x1 = Math.round(cx + cellW * 0.85);
-      const y0 = Math.round(cy + cellH * 0.15);
-      const y1 = Math.round(cy + cellH * 0.85);
+      // 全民投资人 2048：方块=填充色+描边，数字居中；采样格子上中部（避开数字与描边）
+      const x0 = Math.round(cx + cellW * 0.28);
+      const x1 = Math.round(cx + cellW * 0.72);
+      const y0 = Math.round(cy + cellH * 0.24);
+      const y1 = Math.round(cy + cellH * 0.48);
       const buckets = new Map();
       for (let y = y0; y < y1; y += 2) {
         for (let x = x0; x < x1; x += 2) {
@@ -251,7 +303,7 @@ function readBoard(png, board) {
       const rgb = mode ? [Math.round(mode.r / mode.n), Math.round(mode.g / mode.n), Math.round(mode.b / mode.n)] : [0, 0, 0];
       const bgD =
         Math.abs(rgb[0] - BOARD_BG[0]) + Math.abs(rgb[1] - BOARD_BG[1]) + Math.abs(rgb[2] - BOARD_BG[2]);
-      const v = bgD < 45 ? 0 : matchValue(rgb[0], rgb[1], rgb[2]);
+      const v = bgD < 25 ? 0 : matchValue(rgb[0], rgb[1], rgb[2]);
       row.push({ v, rgb });
     }
     grid.push(row);
@@ -261,6 +313,11 @@ function readBoard(png, board) {
 
 function gridValues(grid) {
   return grid.map((row) => row.map((cell) => cell.v));
+}
+
+// 未知颜色（-1）在喂给 AI/引擎前按空格处理，避免 -1 污染搜索与模拟
+function sanitizeValues(values) {
+  return values.map((row) => row.map((v) => (v === -1 ? 0 : v)));
 }
 
 function swipe(board, dir) {
@@ -295,14 +352,24 @@ function maxTile(grid) {
  * 遇到广告/弹窗遮挡时等待后重试；持续异常返回 null。
  */
 function readGridUntilClean() {
-  for (let attempt = 0; attempt < 8; attempt++) {
+  for (let attempt = 0; attempt < 12; attempt++) {
     const shot = capture();
     const boardNow = findBoard(shot.png);
     const grid = readBoard(shot.png, boardNow);
     const values = gridValues(grid);
     const unknown = values.flat().filter((v) => v === -1).length;
-    if (unknown <= 3) return { values, boardNow, cells: grid };
-    sleepSync(1500);
+    if (unknown <= 3) {
+      // 等待动画稳定：间隔后重读，连续两次一致才算干净
+      sleepSync(300);
+      const shot2 = capture();
+      const grid2 = readBoard(shot2.png, findBoard(shot2.png));
+      const values2 = gridValues(grid2);
+      const unknown2 = values2.flat().filter((v) => v === -1).length;
+      if (unknown2 <= 3 && JSON.stringify(values) === JSON.stringify(values2)) {
+        return { values, boardNow, cells: grid };
+      }
+    }
+    sleepSync(800);
   }
   return null;
 }
@@ -351,9 +418,12 @@ function main() {
 
   let prevGrid = null;
   let lastDir = null;
+  let prevClean = false;
   let moves = 0;
   let maxV = 0;
   let bad = 0;
+  let lastBoardKey = '';
+  let stuckSteps = 0;
 
   while (true) {
     const clean = readGridUntilClean();
@@ -362,11 +432,14 @@ function main() {
       break;
     }
     let { values, boardNow, cells } = clean;
+    // 上一步棋盘是否完全干净（无未知色）——只有干净棋盘才做一致性校验/学习，杜绝误学
+    let readClean = cells.flat().every((c) => c.v !== -1);
+    values = sanitizeValues(values);
     maxV = Math.max(maxV, maxTile(values));
 
     // 物理一致性门禁：上一步的结果应等于“上一步棋盘的模拟移动 + 一个新生成的方块”，
     // 不符合就等待动画/界面稳定后重读，最多重试 4 次
-    if (prevGrid && lastDir) {
+    if (prevGrid && lastDir && prevClean) {
       const sim = ai.simulateMove(prevGrid, lastDir);
       if (sim.moved) {
         const diffCells = (g) => {
@@ -390,9 +463,10 @@ function main() {
             sleepSync(1200);
             const retry = readGridUntilClean();
             if (!retry) break;
-            values = retry.values;
+            values = sanitizeValues(retry.values);
             boardNow = retry.boardNow;
             cells = retry.cells;
+            readClean = cells.flat().every((c) => c.v !== -1);
             maxV = Math.max(maxV, maxTile(values));
             diffs = diffCells(values);
             retried = true;
@@ -405,7 +479,7 @@ function main() {
           }
           // 自校准：以模拟结果为真值，学习未识别/误读格子的真实颜色
           for (const d of diffs) {
-            if (sim.grid[d.r][d.c] !== 0) {
+            if (sim.grid[d.r][d.c] !== 0 && cells[d.r][d.c].v !== 0) {
               learnColor(sim.grid[d.r][d.c], cells[d.r][d.c].rgb);
             }
           }
@@ -440,9 +514,22 @@ function main() {
       console.log(`游戏结束: 共 ${moves} 步, 最大方块 ${maxV}, 警告数 ${bad}`);
       break;
     }
+    // 卡死检测：棋盘连续多步不变则停止（避免引擎基于误读无限空转）
+    const boardKey = JSON.stringify(values);
+    if (boardKey === lastBoardKey) {
+      stuckSteps++;
+      if (stuckSteps >= 12) {
+        console.log(`棋盘连续 ${stuckSteps} 步无变化，疑似识别异常或死局，已停止。共 ${moves} 步, 最大方块 ${maxV}`);
+        break;
+      }
+    } else {
+      stuckSteps = 0;
+      lastBoardKey = boardKey;
+    }
     if (verbose) console.log(`step ${moves}: dir=${dir} max=${maxV}`);
     swipe(boardNow, dir);
     prevGrid = values;
+    prevClean = readClean;
     lastDir = dir;
     moves++;
     if (once) {
