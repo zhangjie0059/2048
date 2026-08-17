@@ -45,32 +45,36 @@ const ADB = process.env.LD_ADB || 'E:/leidian/LDPlayer9/adb.exe';
 const INDEX = process.env.LD_INDEX || '0';
 const DELAY = parseInt(process.env.DELAY, 10) || 350;
 
-// 标准 2048 方块色板（该 App 的 4 号方块实测为 rgb(236,220,190)，与标准色非常接近）
-// 全民投资人内嵌 2048 的实测色板：2=米色填充，4=橙色填充（数字为红色，描边随数值变化）
+// 全民投资人内嵌 2048：方块 = 填充色 + 描边色，两者成对唯一确定数值。
+// 实测/用户确认：2=米底+青边，4=橙底+紫边，8=蓝底+品红边，512=深底+品红边，1024=深底+蓝边。
+// 其余数值由脚本在每次合成新数值时自动学习（底色+描边）。
 const PALETTE = [
-  { v: 2, rgb: [235, 205, 154] },
-  { v: 4, rgb: [188, 139, 82] },
-  { v: 8, rgb: [56, 104, 168] },
-  { v: 16, rgb: [81, 59, 60] },
-  { v: 32, rgb: [186, 48, 48] },
-  { v: 64, rgb: [56, 32, 24] },
-  { v: 128, rgb: [150, 160, 168] },
-  { v: 256, rgb: [40, 40, 32] },
-  { v: 512, rgb: [247, 230, 215] },
-  { v: 1024, rgb: [96, 120, 184] },
-  { v: 2048, rgb: [216, 88, 88] },
-  { v: 4096, rgb: [224, 200, 120] },
-  { v: 16384, rgb: [80, 192, 208] },
-  { v: 32768, rgb: [224, 128, 200] },
+  { v: 2, fill: [235, 205, 154], border: [80, 192, 208] },
+  { v: 4, fill: [188, 139, 82], border: [168, 136, 216] },
+  { v: 8, fill: [56, 104, 168], border: [224, 128, 208] },
+  { v: 16, fill: [59, 40, 41], border: [96, 120, 189] },
+  { v: 512, fill: [48, 32, 24], border: [224, 128, 208] },
+  { v: 1024, fill: [48, 32, 24], border: [96, 120, 184] },
 ];
 // 运行期自动学习到的颜色（以游戏物理模拟结果为真值）
-const PALETTE_EXTRA = [];
+const LEARNED_FILE = path.join(__dirname, 'emulator-learned.json');
+const PALETTE_EXTRA = (() => {
+  try {
+    const arr = JSON.parse(fs.readFileSync(LEARNED_FILE, 'utf8'));
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) {
+    return [];
+  }
+})();
 
 // 实测棋盘底色（空格）
 const BOARD_BG = [176, 128, 96];
 const BG_TOL = 24;
 // 全民投资人 2048 棋盘位置（900x1600 竖屏，动态检测失败时的兜底）
 const KNOWN_BOARD = { x: 88, y: 640, w: 725, h: 730 };
+// 实际格子几何（非均匀：167px 格 + 18px 间隔）
+const CELL_X = [88, 274, 460, 646];
+const CELL_Y = [640, 820, 1006, 1192];
 
 function adbCmd(cmd, binary = false) {
   const args = ['adb', '--index', INDEX, '--command', cmd];
@@ -241,87 +245,87 @@ function findBoard(png) {
   return { ...KNOWN_BOARD };
 }
 
-function matchValue(r, g, b) {
-  const bgD = Math.abs(r - BOARD_BG[0]) + Math.abs(g - BOARD_BG[1]) + Math.abs(b - BOARD_BG[2]);
-  if (bgD < 25) return 0;
+// 区域主色（众数）
+function modeColor(png, W, cx, cy, half) {
+  const buckets = new Map();
+  for (let y = cy - half; y <= cy + half; y += 2) {
+    for (let x = cx - half; x <= cx + half; x += 2) {
+      const i = (W * y + x) * 4;
+      const R = png.data[i], G = png.data[i + 1], B = png.data[i + 2];
+      const key = ((R >> 4) << 8) | ((G >> 4) << 4) | (B >> 4);
+      const bkt = buckets.get(key);
+      if (bkt) {
+        bkt.n++;
+        bkt.r += R;
+        bkt.g += G;
+        bkt.b += B;
+      } else {
+        buckets.set(key, { n: 1, r: R, g: G, b: B });
+      }
+    }
+  }
+  let mode = null;
+  for (const bkt of buckets.values()) if (!mode || bkt.n > mode.n) mode = bkt;
+  return mode ? [Math.round(mode.r / mode.n), Math.round(mode.g / mode.n), Math.round(mode.b / mode.n)] : [0, 0, 0];
+}
+
+// 底色 + 描边 成对匹配数值
+function matchValuePair(fill, border) {
+  const bgD = Math.abs(fill[0] - BOARD_BG[0]) + Math.abs(fill[1] - BOARD_BG[1]) + Math.abs(fill[2] - BOARD_BG[2]);
+  if (bgD < 25) return 0; // 空格
   let best = null;
-  let bestD = 25; // 与色板距离超过 25 视为“未知”，宁可重试也不误判（相近色不再混淆）
-  for (const p of PALETTE) {
-    const d = Math.hypot(r - p.rgb[0], g - p.rgb[1], b - p.rgb[2]);
-    if (d < bestD) {
-      bestD = d;
-      best = p.v;
+  let bestD = 60;
+  for (const p of PALETTE.concat(PALETTE_EXTRA)) {
+    const fd = Math.hypot(fill[0] - p.fill[0], fill[1] - p.fill[1], fill[2] - p.fill[2]);
+    const bd = Math.hypot(border[0] - p.border[0], border[1] - p.border[1], border[2] - p.border[2]);
+    if (fd < 30 && bd < 30) {
+      const d = fd + bd;
+      if (d < bestD) {
+        bestD = d;
+        best = p.v;
+      }
     }
   }
-  for (const p of PALETTE_EXTRA) {
-    const d = Math.hypot(r - p.rgb[0], g - p.rgb[1], b - p.rgb[2]);
-    if (d < bestD) {
-      bestD = d;
-      best = p.v;
-    }
-  }
-  return best || -1; // -1 表示未知颜色
+  return best || -1; // -1 = 未知（等待学习）
 }
 
 /**
- * 学习一个颜色 -> 数值的映射（仅当该值在色板/已学颜色中都不存在时）。
+ * 学习一个 (底色, 描边) -> 数值 的映射（仅当该值尚未被学习）。
  */
-function learnColor(value, rgb) {
-  if (!value || !rgb || rgb[0] + rgb[1] + rgb[2] < 200) return;
-  // 棋盘底色不算方块，禁止把底色学成数值
-  const bgD = Math.abs(rgb[0] - BOARD_BG[0]) + Math.abs(rgb[1] - BOARD_BG[1]) + Math.abs(rgb[2] - BOARD_BG[2]);
-  if (bgD < 30) return;
+function learnColorPair(value, fill, border) {
+  if (!value || !fill || !border) return;
+  const bgD = Math.abs(fill[0] - BOARD_BG[0]) + Math.abs(fill[1] - BOARD_BG[1]) + Math.abs(fill[2] - BOARD_BG[2]);
+  if (bgD < 30) return; // 底色不算方块
   const all = PALETTE.concat(PALETTE_EXTRA);
   for (const p of all) {
-    if (Math.hypot(rgb[0] - p.rgb[0], rgb[1] - p.rgb[1], rgb[2] - p.rgb[2]) < 25) return;
+    if (p.v === value) return;
+    if (
+      Math.hypot(fill[0] - p.fill[0], fill[1] - p.fill[1], fill[2] - p.fill[2]) < 20 &&
+      Math.hypot(border[0] - p.border[0], border[1] - p.border[1], border[2] - p.border[2]) < 20
+    ) {
+      return;
+    }
   }
-  PALETTE_EXTRA.push({ v: value, rgb: [rgb[0], rgb[1], rgb[2]] });
-  console.log(`已学习颜色: 方块 ${value} -> rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
+  PALETTE_EXTRA.push({ v: value, fill: [fill[0], fill[1], fill[2]], border: [border[0], border[1], border[2]] });
+  try {
+    fs.writeFileSync(LEARNED_FILE, JSON.stringify(PALETTE_EXTRA));
+  } catch (e) {
+    /* 忽略 */
+  }
+  console.log(`已学习方块 ${value}: 底色(${fill.join(',')}) 描边(${border.join(',')})`);
 }
 
 function readBoard(png, board) {
   const W = png.width;
   const grid = [];
-  const cellW = board.w / 4;
-  const cellH = board.h / 4;
   for (let r = 0; r < 4; r++) {
     const row = [];
     for (let c = 0; c < 4; c++) {
-      const cx = board.x + c * cellW;
-      const cy = board.y + r * cellH;
-      // 全民投资人 2048：方块=填充色+描边，数字居中；采样格子上中部（避开数字与描边）
-      const x0 = Math.round(cx + cellW * 0.28);
-      const x1 = Math.round(cx + cellW * 0.72);
-      const y0 = Math.round(cy + cellH * 0.24);
-      const y1 = Math.round(cy + cellH * 0.48);
-      const buckets = new Map();
-      for (let y = y0; y < y1; y += 2) {
-        for (let x = x0; x < x1; x += 2) {
-          const i = (W * y + x) * 4;
-          const R = png.data[i];
-          const G = png.data[i + 1];
-          const B = png.data[i + 2];
-          const key = ((R >> 4) << 8) | ((G >> 4) << 4) | (B >> 4);
-          const bkt = buckets.get(key);
-          if (bkt) {
-            bkt.n++;
-            bkt.r += R;
-            bkt.g += G;
-            bkt.b += B;
-          } else {
-            buckets.set(key, { n: 1, r: R, g: G, b: B });
-          }
-        }
-      }
-      let mode = null;
-      for (const bkt of buckets.values()) {
-        if (!mode || bkt.n > mode.n) mode = bkt;
-      }
-      const rgb = mode ? [Math.round(mode.r / mode.n), Math.round(mode.g / mode.n), Math.round(mode.b / mode.n)] : [0, 0, 0];
-      const bgD =
-        Math.abs(rgb[0] - BOARD_BG[0]) + Math.abs(rgb[1] - BOARD_BG[1]) + Math.abs(rgb[2] - BOARD_BG[2]);
-      const v = bgD < 25 ? 0 : matchValue(rgb[0], rgb[1], rgb[2]);
-      row.push({ v, rgb });
+      // 填充色：格子上部中央（数字上方）；描边色：格子左边缘内侧、垂直居中
+      const fill = modeColor(png, W, CELL_X[c] + 83, CELL_Y[r] + 28, 12);
+      const border = modeColor(png, W, CELL_X[c] + 10, CELL_Y[r] + 84, 4);
+      const v = matchValuePair(fill, border);
+      row.push({ v, rgb: fill, fill, border });
     }
     grid.push(row);
   }
@@ -508,7 +512,7 @@ function main() {
           // 自校准：以模拟结果为真值，学习未识别/误读格子的真实颜色
           for (const d of diffs) {
             if (sim.grid[d.r][d.c] !== 0 && cells[d.r][d.c].v !== 0) {
-              learnColor(sim.grid[d.r][d.c], cells[d.r][d.c].rgb);
+              learnColorPair(sim.grid[d.r][d.c], cells[d.r][d.c].fill, cells[d.r][d.c].border);
             }
           }
         }
