@@ -25,6 +25,7 @@
 const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 let pngModule;
 try {
@@ -53,6 +54,7 @@ const PALETTE = [
   { v: 16, rgb: [81, 59, 60] },
   { v: 32, rgb: [186, 48, 48] },
   { v: 64, rgb: [56, 32, 24] },
+  { v: 128, rgb: [150, 160, 168] },
 ];
 // 运行期自动学习到的颜色（以游戏物理模拟结果为真值）
 const PALETTE_EXTRA = [];
@@ -119,14 +121,14 @@ function adbCmd(cmd, binary = false) {
 // 截图走直连 adb（ldconsole 传大文件会截断），带重连与 PNG 完整性校验
 function binaryAdb(cmd) {
   const port = 5555 + parseInt(INDEX, 10) * 2;
-  const args = ['-s', `127.0.0.1:${port}`, 'exec-out', ...cmd.split(' ')];
-  for (let attempt = 0; attempt < 8; attempt++) {
+  const device = `127.0.0.1:${port}`;
+  const tmpRemote = `/sdcard/scr_${Date.now()}_${Math.floor(Math.random() * 10000)}.png`;
+  const tmpLocal = path.join(os.tmpdir(), `scr_${Date.now()}_${Math.floor(Math.random() * 10000)}.png`);
+  for (let attempt = 0; attempt < 6; attempt++) {
     try {
-      const out = execFileSync(ADB, args, {
-        encoding: null,
-        timeout: 30000,
-        maxBuffer: 64 * 1024 * 1024,
-      });
+      execFileSync(ADB, ['-s', device, 'shell', 'screencap', '-p', tmpRemote], { timeout: 30000 });
+      execFileSync(ADB, ['-s', device, 'pull', tmpRemote, tmpLocal], { timeout: 30000 });
+      const out = fs.readFileSync(tmpLocal);
       const ok =
         out &&
         out.length > 40 &&
@@ -140,12 +142,20 @@ function binaryAdb(cmd) {
         out[out.length - 3] === 0x42 &&
         out[out.length - 2] === 0x60 &&
         out[out.length - 1] === 0x82;
-      if (ok) return out;
+      if (ok) {
+        try {
+          execFileSync(ADB, ['-s', device, 'shell', 'rm', '-f', tmpRemote], { timeout: 10000 });
+        } catch (e) { /* 忽略 */ }
+        return out;
+      }
     } catch (e) {
       /* 重试 */
     }
     try {
-      execFileSync(ADB, ['connect', `127.0.0.1:${port}`], { encoding: 'utf8', timeout: 15000 });
+      fs.unlinkSync(tmpLocal);
+    } catch (e) { /* 忽略 */ }
+    try {
+      execFileSync(ADB, ['connect', device], { encoding: 'utf8', timeout: 15000 });
     } catch (e) {
       /* 重连失败也继续重试 */
     }
