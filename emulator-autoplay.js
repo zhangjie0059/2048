@@ -55,6 +55,7 @@ const PALETTE = [
   { v: 32, rgb: [186, 48, 48] },
   { v: 64, rgb: [56, 32, 24] },
   { v: 128, rgb: [150, 160, 168] },
+  { v: 256, rgb: [40, 40, 32] },
 ];
 // 运行期自动学习到的颜色（以游戏物理模拟结果为真值）
 const PALETTE_EXTRA = [];
@@ -238,7 +239,7 @@ function matchValue(r, g, b) {
   const bgD = Math.abs(r - BOARD_BG[0]) + Math.abs(g - BOARD_BG[1]) + Math.abs(b - BOARD_BG[2]);
   if (bgD < 25) return 0;
   let best = null;
-  let bestD = 40; // 与色板距离超过 40 视为“未知”，宁可重试也不误判
+  let bestD = 25; // 与色板距离超过 25 视为“未知”，宁可重试也不误判（相近色不再混淆）
   for (const p of PALETTE) {
     const d = Math.hypot(r - p.rgb[0], g - p.rgb[1], b - p.rgb[2]);
     if (d < bestD) {
