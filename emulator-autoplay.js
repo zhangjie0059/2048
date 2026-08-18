@@ -63,6 +63,7 @@ const PALETTE = [
   { v: 4096, fill: [81, 59, 60], border: [226, 206, 125] },
   { v: 8192, fill: [245, 206, 116], border: [86, 195, 213] },
   { v: 16384, fill: [112, 103, 158], border: [173, 142, 223] },
+  { v: 32768, fill: [209, 168, 117], border: [228, 130, 208] },
 ];
 // 运行期自动学习到的颜色（以游戏物理模拟结果为真值）
 const LEARNED_FILE = path.join(__dirname, 'emulator-learned.json');
