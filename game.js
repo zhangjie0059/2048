@@ -17,6 +17,7 @@
   const overlayBtn = document.getElementById('overlay-btn');
   const restartBtn = document.getElementById('restart');
   const eliminateBtn = document.getElementById('eliminate-btn');
+  const autoplayBtn = document.getElementById('autoplay-btn');
   const multiplierSelect = document.getElementById('multiplier');
   const targetEl = document.getElementById('target');
 
@@ -46,6 +47,7 @@
   let multiplier = 1;
 
   const els = new Map(); // tileId -> DOM element
+  const autoplay = { running: false, timer: null };
 
   function bestKey() {
     return multiplier === 1 ? 'best-2048' : 'best-2048-' + multiplier;
@@ -520,8 +522,63 @@
     saveState();
   }
 
+  // ---------- 手动开关的自动玩 ----------
+  function gridValues() {
+    return grid.map((row) => row.map((t) => (t ? t.value : 0)));
+  }
+
+  function stopAutoplay() {
+    autoplay.running = false;
+    clearTimeout(autoplay.timer);
+    autoplay.timer = null;
+    autoplayBtn.textContent = '▶ 自动';
+  }
+
+  function autoplayTick() {
+    if (!autoplay.running) return;
+    if (over) {
+      stopAutoplay(); // 游戏结束自动停，不自动重开
+      return;
+    }
+    if (busy) {
+      autoplay.timer = setTimeout(autoplayTick, 50);
+      return;
+    }
+    // 自动玩时自动关掉胜利弹窗，继续冲更高分
+    if (!overlayEl.classList.contains('hidden')) hideOverlay();
+    if (!window.Twenty48AI) {
+      stopAutoplay();
+      console.log('AI 模块未加载');
+      return;
+    }
+    const dir = window.Twenty48AI.bestMove(gridValues(), { timeoutMs: 150 });
+    if (!dir) {
+      stopAutoplay();
+      return;
+    }
+    move(dir);
+    autoplay.timer = setTimeout(autoplayTick, 260);
+  }
+
+  function startAutoplay() {
+    autoplay.running = true;
+    autoplayBtn.textContent = '⏸ 停止自动';
+    autoplayTick();
+  }
+
+  function toggleAutoplay() {
+    if (autoplay.running) {
+      stopAutoplay();
+      return;
+    }
+    // 正常对局：从当前局面接着自动玩；游戏结束后点自动则开新局
+    if (over) newGame();
+    startAutoplay();
+  }
+
   restartBtn.addEventListener('click', newGame);
   eliminateBtn.addEventListener('click', eliminateSmallest);
+  autoplayBtn.addEventListener('click', toggleAutoplay);
   multiplierSelect.addEventListener('change', () => {
     multiplier = parseInt(multiplierSelect.value, 10) || 1;
     try {
