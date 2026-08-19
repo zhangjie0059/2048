@@ -98,7 +98,6 @@
     render();
     updateScore();
     updateStats();
-    saveState();
   }
 
   function addRandomTile() {
@@ -233,62 +232,6 @@
     }
   }
 
-  // 把当前对局保存到 localStorage（关掉页面/重启脚本后可以接着玩）
-  function saveState() {
-    try {
-      const elapsed = Math.floor((Date.now() - startTime) / 1000);
-      localStorage.setItem(
-        'game-2048-' + multiplier,
-        JSON.stringify({
-          grid: grid.map((row) => row.map((t) => (t ? t.value : 0))),
-          score,
-          moves,
-          elapsed,
-          won,
-          over,
-        })
-      );
-    } catch (e) {
-      /* ignore */
-    }
-  }
-
-  // 页面加载时恢复上次未结束的对局；没有则返回 false
-  function restoreState() {
-    try {
-      const raw = localStorage.getItem('game-2048-' + multiplier);
-      if (!raw) return false;
-      const s = JSON.parse(raw);
-      if (!s || !Array.isArray(s.grid) || s.grid.length !== SIZE) return false;
-      grid = s.grid.map((row, r) =>
-        row.map((v, c) =>
-          v
-            ? { id: nextId++, row: r, col: c, value: v, isNew: false, merged: false, absorbed: null }
-            : null
-        )
-      );
-      score = s.score || 0;
-      moves = s.moves || 0;
-      won = !!s.won;
-      over = !!s.over;
-      // 已结束的局 / 无路可走的残局：不恢复，直接开新局
-      if (over || !canMove()) {
-        localStorage.removeItem('game-2048-' + multiplier);
-        return false;
-      }
-      startTime = Date.now() - (s.elapsed || 0) * 1000;
-      hideOverlay();
-      checkEnd(); // 存档棋盘若已达目标，正确显示胜利界面（不覆盖进行中的状态）
-      computeCellSize();
-      render();
-      updateScore();
-      updateStats();
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
   function move(dirName) {
     if (busy || over) return;
     const dir = DIRS[dirName];
@@ -402,7 +345,6 @@
     addRandomTile();
     updateScore();
     render({ keepAbsorbed: true });
-    saveState();
 
     const settleMs = 220;
     setTimeout(() => {
@@ -519,7 +461,6 @@
       hideOverlay();
     }
     render();
-    saveState();
   }
 
   // ---------- 手动开关的自动玩 ----------
@@ -626,7 +567,7 @@
   multiplierSelect.value = String(multiplier);
   loadBest();
   bestEl.textContent = best;
-  if (!restoreState()) newGame();
+  newGame(); // 每次打开都是全新一局，不恢复上次残局
 
   // 每秒刷新本局用时
   setInterval(updateStats, 1000);
@@ -674,7 +615,6 @@
         render();
         updateScore();
         updateStats();
-        saveState();
       },
     };
   }
