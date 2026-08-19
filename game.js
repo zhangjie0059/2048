@@ -534,7 +534,23 @@
     autoplayBtn.textContent = '▶ 自动';
   }
 
-  function autoplayTick() {
+  // 优先调用本地 C++ 引擎（经服务器 /api/move）；服务器不可用时回退 JS AI
+  async function fetchCppMove(grid) {
+    try {
+      const resp = await fetch('/api/move', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ grid }),
+      });
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      return data.move || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function autoplayTick() {
     if (!autoplay.running) return;
     if (over) {
       stopAutoplay(); // 游戏结束自动停，不自动重开
@@ -546,18 +562,22 @@
     }
     // 自动玩时自动关掉胜利弹窗，继续冲更高分
     if (!overlayEl.classList.contains('hidden')) hideOverlay();
-    if (!window.Twenty48AI) {
-      stopAutoplay();
-      console.log('AI 模块未加载');
-      return;
+    const g = gridValues();
+    let dir = await fetchCppMove(g);
+    if (!dir && window.Twenty48AI) {
+      dir = window.Twenty48AI.bestMove(g, { timeoutMs: 150 });
     }
-    const dir = window.Twenty48AI.bestMove(gridValues(), { timeoutMs: 150 });
     if (!dir) {
       stopAutoplay();
       return;
     }
+    // 等待 C++ 引擎期间用户可能点了“停止”，此时不要再走
+    if (!autoplay.running) {
+      stopAutoplay();
+      return;
+    }
     move(dir);
-    autoplay.timer = setTimeout(autoplayTick, 260);
+    autoplay.timer = setTimeout(autoplayTick, 300);
   }
 
   function startAutoplay() {
