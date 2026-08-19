@@ -6,9 +6,9 @@
 
 ## 运行方式
 
-**推荐方式（无需安装任何环境）：**
-
-- 双击 `start.bat`，或用浏览器直接打开 `index.html`。
+**推荐方式：** 双击 `网页2048-C++自动.bat`，它会启动本地 C++ AI 服务器并打开网页版游戏。
+页面里的「▶ 自动」按钮通过服务器调用 C++ 引擎（2048ai.exe，210 万预算）自动玩，可随时停止/继续。
+（直接双击 `index.html` 也可以玩，但按钮会回退到内置 JS AI。）
 
 游戏是纯静态页面，直接以文件方式打开即可游玩；分数与最高分会保存在浏览器本地存储中。
 
@@ -92,34 +92,21 @@ node emulator-autoplay.js --cpp --budget 2000000
 
 ## 统一入口：App 版 + 网页版双模自动玩
 
-同一套 C++ 强 AI 引擎（`2048ai.exe`，共享封装见 `engine.js`）可以驱动两种载体：
+同一套 C++ 强 AI 引擎（`2048ai.exe`，共享封装见 `engine.js`）驱动两种载体：
+
+### 网页版
+
+`网页2048-C++自动.bat` 启动本地服务器（`server.js`）并打开游戏；页面里的
+「▶ 自动」按钮通过 `/api/move` 调用 C++ 引擎（浏览器不能直接运行 exe，所以用服务器做桥梁）。
+服务器预算默认 210 万，可用环境变量 `BUDGET` 调整；端口默认 8123，可用 `PORT` 调整。
 
 ```bash
-node autoplay.js --target web --url <网页2048地址>        # 网页版
-node autoplay.js --target app                             # 雷电模拟器 App 版
+node server.js              # 手动启动服务器
 ```
 
-### 网页版（web-autoplay.js）
+服务器未启动时（比如直接双击 `index.html`），按钮自动回退到内置 JS AI（ai.js）。
 
-使用 Playwright 驱动系统 Chrome/Edge，读取 DOM 棋盘（兼容 Cirulli 系
-`.tile-position-x-y` 与 transform 定位系；若页面提供 `window.__game2048.getGrid()`
-则直接读取精确棋盘），把 16 个数喂给 C++ 引擎，再用方向键走子。
-
-```bash
-node web-autoplay.js --url http://localhost:8000/ --budget 2097152
-node web-autoplay.js --url https://play2048.co/ --budget 2097152 --headed --autorestart
-```
-
-常用参数：
-
-- `--budget N`：C++ 单步搜索预算，越大越强越慢（冲 32768 建议 2097152）
-- `--target-tile N`：达到该方块即停止（默认 0 = 不限制，一直玩到游戏结束）
-- `--moves N` / `--once`：调试用，限制步数或只走一步
-- `--headed`：显示浏览器窗口（默认无头）
-- `--autorestart`：游戏结束后自动点“新游戏”重开（默认关闭，不加则结束后停止）
-- `--delay MS`：每步等待动画的毫秒数（默认 160）
-
-### App 版（emulator-autoplay.js）
+### 雷电模拟器 App 版（emulator-autoplay.js）
 
 ```bash
 node emulator-autoplay.js --cpp --budget 2097152
